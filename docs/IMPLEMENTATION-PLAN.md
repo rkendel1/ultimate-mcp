@@ -38,6 +38,12 @@ And one hard gap the spec under-weights: **AuthBoundry is not an OAuth authoriza
 authorize/token endpoint, PKCE, dynamic client registration, or protected-resource metadata exists. This
 decides how M0 authenticates (see D2).
 
+**Revision 2026-11-16 — continuity and independent verification.** The product also covers the
+durable lifecycle of work: Intent, Knowledge, Decisions, Work and Verification, with continuity
+(handoff) and independent review as distinct context operations. Continuity already exists in
+FeltDB agent state (verified); independent verification does not exist anywhere and is new work.
+See [CONTINUITY-AND-VERIFICATION.md](CONTINUITY-AND-VERIFICATION.md).
+
 ---
 
 ## 2. Reality map
@@ -63,7 +69,7 @@ decides how M0 authenticates (see D2).
 | PAX | **pax** CLI | `pax test/build/... --json` → `pax.execution-result.v1` (status, exit code, test counts); project observations | Code | Use as the **`development.run` result format**, not as evidence. |
 | Resolver | **resolver** | `ref://` model/secret/endpoint/agent/value, revisioned, audited | Tested; deployment unverified | Not needed for M0–M2. Later: credential binding. |
 | Intent | — | No code | — | **Remove from plan.** |
-| n8n | — | — | — | M5, optional, licensing review first. |
+| n8n | — | — | — | M6, optional, licensing review first. |
 | Hosting | appboundry `deploy/boundry/compose.yml` (shared Hetzner) | FeltDB control/managed, intent, portal, authboundry. Header: **"Customer workloads do NOT run here."** `SERVER-PLAN.md:3`: **"Nothing here has been run on the server."** | Doc | **Conflict → D1.** |
 
 ---
@@ -115,7 +121,7 @@ customer workload (arbitrary code, network). Options:
   rotation friction for long sessions (needs verifying against the 7-day family renewal).
 - (b) Build an OAuth 2.1 authorization server (PKCE, RFC 9728 protected-resource metadata, RFC 7591
   DCR, RFC 8707 audience) **in AuthBoundry**. Required for ChatGPT and for self-service onboarding. Real
-  work; schedule as M4. Do not put it in Universal — that would duplicate the authority boundary.
+  work; schedule as M5. Do not put it in Universal — that would duplicate the authority boundary.
 
 **D3 — Tool shape exposed over MCP.**
 `@appport/mcp` projects one tool per capability. The spec wants meta-tools. Recommendation: **both,
@@ -195,11 +201,11 @@ an agent a shell, and the authority UI must say so.
   resource attributes. Confirm `ResourceScope.is_subset_of` covers it.
 - **W-A2** Implement the batch eligibility read (`docs/CAPABILITY-ELIGIBILITY.md`, currently proposal)
   so `tools/list` can be filtered per caller.
-- **W-A3 (M4)** OAuth 2.1 authorization server for MCP (D2b).
+- **W-A3 (M5)** OAuth 2.1 authorization server for MCP (D2b).
 
 ### AppPort
 - **W-P1** Put `capabilityDigest` into the projected tool's `_meta` (small; digests exist).
-- **W-P2 (M5)** Inbound bridge: external MCP server → AppPort capabilities (does not exist).
+- **W-P2 (M6)** Inbound bridge: external MCP server → AppPort capabilities (does not exist).
 
 ### Not touched
 PAX (used as a CLI inside sessions), Resolver (later), AppBoundry (hosting pipeline only), appport-services
@@ -219,20 +225,26 @@ evidence record exists for allow and deny.
 Exit: Claude Code, through Boundry only, creates a computer, clones a repo, edits a file, runs tests
 (`pax test --json`), commits on a branch; disconnects; reconnects and finds the workspace intact.
 
-**M2 — Jobs and evidence** *(W-U4, W-F4, jobs capabilities)*
+**M2 — Work records and independent verification** *(see CONTINUITY-AND-VERIFICATION.md §9)*
+`universal.work.*` over FeltDB agent state; WorkIntent, WorkDecision, ReviewRun, ReviewerExecution,
+Finding, Resolution; `verification.assemble`; constructed review via FeltKit generation.
+Exit: **AT-1** (cross-agent continuation) and **AT-2** (independent review, human resolution,
+durable decisions readable by a third agent) pass.
+
+**M3 — Jobs and evidence** *(W-U4, W-F4, jobs capabilities)*
 Exit: a long-running command continues after client disconnect; `jobs.cancel` actually stops the process
 (verified by process absence, not status); every invocation, including refusals, has an inspectable
 evidence record joined to the AuthBoundry decision and compute receipt.
 
-**M3 — Browser and first integrations** *(W-C4 Playwright, GitHub via egress credential brokering, HTTP)*
+**M4 — Browser and first integrations** *(W-C4 Playwright, GitHub via egress credential brokering, HTTP)*
 Exit: an agent logs into an authorized test app in a session browser and returns a screenshot artifact;
 GitHub token never appears in tool output or model context (asserted by test).
 
-**M4 — Authority and product surface** *(W-A2, W-A3, approvals, console)*
+**M5 — Authority and product surface** *(W-A2, W-A3, approvals, console)*
 Exit: ChatGPT connects via OAuth; tool lists are filtered per caller; consequential capabilities can be
 set to require approval; an admin can do all of this without internal APIs.
 
-**M5 — Extension** *(W-P2, n8n after licensing review)*
+**M6 — Extension** *(W-P2, n8n after licensing review)*
 
 ---
 
@@ -251,6 +263,8 @@ set to require approval; an admin can do all of this without internal APIs.
 | Secrets never in model context | new test scanning all tool results/evidence for injected secret values |
 | Provider replacement | swap container ↔ microVM provider; same `universal.*` contract passes |
 | Real repository task | M1 exit test |
+| **AT-1** Cross-agent continuation | FeltDB agent state (verified locally, `probes/`); new E2E across two clients and principals |
+| **AT-2** Independent review → human resolution → durable decisions read by a third agent | New; see CONTINUITY-AND-VERIFICATION.md §8 |
 
 ---
 

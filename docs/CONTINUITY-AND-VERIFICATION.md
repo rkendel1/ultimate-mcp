@@ -1,0 +1,237 @@
+# Continuity and Independent Verification — Architecture Assessment
+
+Status: **assessment and plan.** Companion to [IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md).
+Audit date: 2026-11-16. Inputs: `rkendel1/elephant-goldfish-model` at `403d888` (a fork of
+`google/elephant-goldfish-model`; upstream HEAD is `72d06f5`, so the fork is behind and should be
+re-checked before any reuse), `@feltdb/core@0.21.0` (published package; source repo not accessible),
+`rkendel1/feltkit` at `b0cfa6a`.
+
+Evidence levels as in the plan: **Verified** (ran it), **Tested** (repo tests exist), **Code**, **Doc**.
+
+---
+
+## 1. Conclusion
+
+- **Continuity already exists in FeltDB and works.** `@feltdb/core` agent state (tasks, immutable
+  checkpoints, scoped memory, leased handoffs, bounded context assembly) carried a task from one
+  agent to another across a process restart, from durable state alone. **Verified** (`probes/feltdb-continuity.mjs`).
+- **Independent verification does not exist anywhere in the stack**, and FeltDB's one context
+  operation is the wrong one for it: the resumed bundle contains the originating agent's
+  unratified `decisions` and its `assumption` memories. **Verified.** A reviewer loaded that way
+  is not a Goldfish.
+- **EGM is a method with weak durability.** Findings are free-text normalized into markdown;
+  resolution decisions are held "in an internal memory checklist" (`skills/egm-resolve/SKILL.md:170`);
+  isolation is proven only in test fixtures, and on cloud surfaces the probe returns UNKNOWN
+  (`TESTING.md:126-129`). EGM itself states that child-written receipts cannot substitute for tool
+  records (`TESTING.md:155-158`).
+- **What Boundry adds** is not prompts. It is (1) a second context operation, verification
+  assembly, that excludes originating context by construction; (2) durable Review, Finding,
+  Resolution and Decision records with EGM's resolution rules enforced deterministically; and (3)
+  isolation evidence that comes from the boundary, not from the reviewer's self-report.
+
+---
+
+## 2. Three layers, and what belongs in each
+
+| Layer | Owns | Examples |
+|---|---|---|
+| **Method** (EGM, Apache-2.0, agent-side) | How to brainstorm, draft, review, resolve | Personas (`agents/*.md`), rubrics (`resources/document_standards/*`), stage order, the synthesizer |
+| **Boundry primitives** | State, authority, context assembly, evidence | Intent, Knowledge, Decisions, Work, Verification records; continuity vs verification assembly; isolation evidence |
+| **Agent skills** (replaceable) | Behavior that uses the primitives | EGM skills calling Boundry capabilities instead of writing `goldfish_review_report.md` to the working tree |
+
+Rule: Boundry never embeds a persona prompt or rubric. A review run **references** them as input
+artifacts by URI and digest, so the method can evolve (or be replaced) without a Boundry change,
+and every review records exactly which method version it ran.
+
+---
+
+## 3. EGM concepts: reuse decision
+
+| EGM concept | Where it is | Decision |
+|---|---|---|
+| Elephant / Goldfish / Human roles | README, `architecture.md` | **Primitive.** Distinct AuthBoundry principals and context boundaries (§5) |
+| Personas, rubrics, stage pipeline | `agents/`, `resources/`, `review.md` | **Stay agent-side.** Referenced by digest in each review run |
+| Severity: Blocker / Major / Nit | `agents/synthesizer.md:12` | **Adopt** as the finding severity enum |
+| Resolution categories: PROPOSE FIX, CONTEST, ESCALATE, DECLINE | `review.md`, `egm-resolve` | **Primitive, enforced.** These rules are deterministic, so Boundry enforces them: a CONTEST must cite evidence the reviewer could read (checked against the review bundle); comprehension gaps cannot be contested; severity changes need a contest; ESCALATE needs a human decision |
+| Failed reviewer = `not run`, never zero findings | `synthesizer.md:40` | **Primitive.** Reviewer execution status; a run with a `not_run` reviewer is not clean |
+| Round rules: settled findings stay settled, a fixed finding re-opens if raised again, clean = no unsettled Blocker/Major, stop after 2 clean rounds or at 5 | `review.md` "Iteration" | **Computed by Boundry** from durable rounds (deterministic); the loop itself stays agent-side |
+| `concepts_brief.md`, `design_draft.md`, `docs/designs/*.md` | skills | **Artifacts** in the repository, registered by path + digest. The repo stays the home of design text; Boundry records versions and links |
+| `goldfish_review_report.md` | synthesizer | **Projection** rendered from Finding records, not the authority |
+| Drift report | `egm-drift-report` | **Split.** Deterministic part (referenced paths/symbols exist at a source tree digest) is a Boundry check; semantic divergence is a review run of kind `drift` producing findings |
+| Isolation probe on native transcripts | `tests/integration/test_claude.py`, `TESTING.md` | **Adopt the principle**, move it to runtime: canary-based exclusion test (§6) |
+| "Elephant does not add context only a zero-context reviewer needs" | `review.md` ESCALATE | **Primitive.** The verification bundle contains only declared sources; the originator cannot inject explanation |
+
+---
+
+## 4. Two context operations
+
+| | Continuity | Independent verification |
+|---|---|---|
+| Purpose | Let the next agent continue | Let a reviewer challenge the work |
+| Includes | Task, latest checkpoint (summary, pending work, constraints, decisions), evidence, scoped memories, recent checkpoints, handoff note | Target artifact at a digest; sources it explicitly references, at digests; the method inputs (persona, standard) at digests; **ratified** decisions (human-approved Decision records) the target cites |
+| Excludes | Nothing relevant | Checkpoint summaries and agent decisions, memories (assumptions included), recent history, handoff notes, transcripts, the originating conversation |
+| Exists today | **Yes** — FeltDB `resume` / `assembleContext` (`feltdb.agent-context@1`). Verified | **No.** New: `verification.assemble` |
+| Recorded | Handoff + claim (FeltDB) | Bundle manifest + digest on the Review record |
+
+Why ratified decisions are in scope: EGM allows a contest to cite "a decision recorded in the
+document". A human-approved decision is an input to the design; an agent's unratified checkpoint
+decision is exactly the assumption under review.
+
+Placement: build `verification.assemble` in Universal against the FeltDB agent-state contract
+first; propose it upstream to FeltDB as the sibling of `assembleContext` once AT-2 passes.
+
+---
+
+## 5. Records and relationships
+
+Existing records are used as-is. New records are few and narrow. Names avoid three existing
+collisions: FeltKit `decisions.ts` (model choices), FeltDB checkpoint `decisions: string[]`
+(agent notes), and FeltDB `Intent` / `Proposal` (application-contract changes: flow hashes, module
+and billing targets). These must not be overloaded.
+
+| Concept | Record | Status |
+|---|---|---|
+| Intent | **`WorkIntent`** — goal, requirements, constraints, acceptance criteria, human owner, status | **New** (FeltDB `Intent` is application-contract specific) |
+| Knowledge | FeltDB `AgentMemory` with `kind ∈ {fact, assumption, unknown}`, source, evidence refs; `supersede` / `invalidate` with reason | **Exists** (kinds are a convention + validation). FeltDB `application-understanding` already models evidence / inference / unknown / assumption with confidence for application facts |
+| Decisions | **`WorkDecision`** — question, options, chosen, rationale, rejected alternatives, evidence refs, findings addressed, decided_by (human principal), AuthBoundry decision id proving that authority, supersedes | **New** |
+| Work | FeltDB `AgentTask` / `AgentCheckpoint` / `AgentHandoff`; FeltKit change sets (verified by FeltKit, not the model); compute sessions; artifacts by digest | **Exists** |
+| Verification | **`ReviewRun`**, **`ReviewerExecution`**, **`Finding`**, **`Resolution`** | **New** |
+
+```
+WorkIntent ──1:n── AgentTask ──1:n── AgentCheckpoint (immutable)
+    │                 │  └── AgentHandoff (continuity)
+    │                 └──── AgentMemory (fact | assumption | unknown)
+    │
+    ├── Artifact@digest  (design, plan, code tree, test result)
+    │        │
+    │     ReviewRun (kind: design | readiness | drift; round n; bundle digest; isolation level)
+    │        ├── ReviewerExecution (principal, method artifact digests, status completed | not_run,
+    │        │                       reads, generation receipt input digest when constructed)
+    │        └── Finding (severity, claim, location artifact@digest+range, evidence refs)
+    │                 └── Resolution (PROPOSE_FIX | CONTEST | ESCALATE | DECLINE,
+    │                                 cited evidence ⊆ bundle, by principal)
+    │
+    └── WorkDecision (decided_by human, resolves findings, invalidates/ supersedes memories,
+                      becomes a constraint on tasks, cited by the next artifact version)
+```
+
+Every write is a capability invocation, so each already gets an AuthBoundry decision and a
+Universal evidence record (plan W-U4). The records above are the *meaning*; the evidence join is
+the *proof of who did what*.
+
+Authority rules (AuthBoundry grants, enforced at invocation):
+- `work.decision.record` — humans only. An agent may propose (as a Resolution), never decide.
+- `review.read` — granted to a reviewer principal for one ReviewRun's bundle only.
+- `continuity.read` (`resume`, memories, checkpoints) — **never** granted to a reviewer principal.
+
+---
+
+## 6. Enforcing and evidencing fresh context
+
+Boundry cannot see inside a client's context window. It can control what reaches the reviewer
+through Boundry, who the reviewer is, and in the strongest case the reviewer's entire input.
+Claims are graded, never rounded up:
+
+| Level | How | What it proves | What it does not |
+|---|---|---|---|
+| **asserted** | Client reports it used a fresh subagent (EGM today) | Nothing beyond the claim; recorded as unverified | Freshness |
+| **scoped** | Reviewer is a separate AuthBoundry principal with a review-scoped delegation; continuity reads denied; every read recorded | The reviewer could not obtain originating context **through Boundry**, and exactly which bundle items it read | That the client didn't put context in the prompt (e.g. a Claude Code subagent shares its parent's process, MCP connection and credential, so it cannot even be a separate principal) |
+| **constructed** | Boundry builds the reviewer's entire input: (a) a direct model call via FeltKit generation, recording `GenerationReceipt.inputDigest`; or (b) a headless agent CLI in a compute session whose workspace holds only the bundle's sources, with the starting prompt digest, workspace tree digest and egress policy recorded | Freshness by construction for that run | Review quality, or that every item was fully read (EGM: a successful read result is not proof the whole resource was read) |
+
+Runtime-level canary test (adopted from EGM's isolation probe): the originating checkpoint and a
+memory carry a unique canary string; for `constructed` runs, the recorded input must not contain it
+(checked against the stored bundle preimage); for `scoped` runs, no recorded read may return it.
+
+Per runtime (today):
+
+| Runtime | Best achievable level | Note |
+|---|---|---|
+| Claude Code, in-session subagent | asserted | Same process and credential as the Elephant |
+| Claude Code / Codex headless in a Boundry compute session | constructed (b) | Needs W-C2 egress control; microVM for enforced egress |
+| Any client as a separate principal over MCP | scoped | Needs a second agent credential |
+| Boundry-run model call | constructed (a) | Uses existing FeltKit generation + Resolver model refs; Boundry pays the inference |
+
+Recommendation: require **constructed** for reviews that gate a human approval; accept **scoped**
+or **asserted** as advisory, labelled as such on every Finding.
+
+---
+
+## 7. Possible today vs new work
+
+| Capability | Today | New |
+|---|---|---|
+| Cross-agent continuation (task, checkpoint, handoff, resume) | FeltDB agent state — **Verified** | Expose as `universal.work.*` capabilities; bind actors to AuthBoundry principals (currently free strings) |
+| Knowledge with provenance, supersede/invalidate | FeltDB memory — **Verified** (write/read); invalidate not exercised | `kind` validation; link invalidation to a Finding/Decision |
+| Verified test/build evidence | FeltKit change sets `verified` state — **Tested** | Use in AT-2 for implementation evidence |
+| Human approval of consequential actions | FeltKit `awaiting_approval` — **Tested** | Reuse for `WorkDecision` |
+| Per-call authority + decision ids | AuthBoundry via FeltKit — **Tested** | Reviewer principal + review-scoped delegation (exists as a mechanism: capability + resource scope) |
+| Input digest of a model call | FeltKit `GenerationReceipt.inputDigest` — **Code** | Wire into ReviewerExecution |
+| Isolated reviewer workspace | compute sessions — **Tested** | Bundle-only checkout; egress lock (plan W-C2) |
+| Verification context assembly | — | **`verification.assemble`** |
+| Review / finding / resolution / decision records + rule enforcement | — | **New records**, deterministic rule checks |
+| Deterministic drift check | FeltDB `ArchitectureInvariant` + evaluations (Code; general invariants) | Reference-existence check of design artifacts at a tree digest |
+| Semantic drift | EGM `egm-drift-report` (agent-side, markdown) | Emits Findings into a `drift` ReviewRun |
+
+Not built (scope guard): no orchestration engine for EGM stages, no prompt library, no agent
+runtime beyond the existing compute session and FeltKit generation call, no general workflow DSL.
+
+---
+
+## 8. Acceptance tests
+
+**AT-1 — Cross-agent continuation** *(preserved; stated explicitly here because no prior text of
+it exists in the repositories)*
+1. Agent A (Claude Code, principal `A`) works in a Universal computer, checkpoints with decisions,
+   evidence and memories, and creates a handoff to principal `B`.
+2. `A`'s credential is revoked.
+3. Agent B (a different client, e.g. Codex, principal `B`) connects, claims the handoff and resumes
+   from durable state only: same workspace (files and git state by tree digest), same objective,
+   pending work, constraints and evidence.
+4. B's subsequent work is attributed to `B`; any further call by `A` is refused.
+Partial evidence today: steps 1 and 3 at the FeltDB layer (`probes/feltdb-continuity.mjs`).
+
+**AT-2 — Independent verification with durable resolution**
+1. Agent A drafts `docs/designs/x.md` (digest D1). Its checkpoint records decision `d1` and an
+   assumption memory, both containing canary `C`.
+2. A requests review. Boundry assembles a verification bundle (target D1 + referenced sources +
+   method artifacts) and records its digest. Assert: bundle contains no checkpoint, memory or
+   handoff content; `C` is absent.
+3. Reviewer R runs at **constructed** level as a separate principal. Assert: R's recorded input
+   digest equals the bundle digest's construction; any attempt by R to call `resume` / memory reads
+   is refused by AuthBoundry and recorded. One reviewer is forced to fail: it is recorded `not_run`,
+   and the round is not clean.
+4. Findings are recorded with severity and location. A attempts to CONTEST one citing a source
+   **outside** the bundle → refused. A CONTEST citing a bundle source → accepted. A attempts to
+   record a `WorkDecision` → refused (agents cannot decide).
+5. Human H resolves the ESCALATE item and records decisions; each Decision carries H's principal and
+   an AuthBoundry decision id. The refuted assumption memory is invalidated with a link to the Finding.
+   A revises the design to D2.
+6. Agent C (a third runtime, never involved, principal `C`) connects and retrieves, via MCP only:
+   the WorkIntent, D1 and D2, the ReviewRun with its bundle manifest and isolation level, every
+   Finding and Resolution, the Decisions with who decided, the invalidated memory, and the evidence
+   records — all from durable state, with no access to A's or R's conversations.
+
+---
+
+## 9. Changes to the implementation plan
+
+- New milestone **M2 — Work records and independent verification** (after M1 computer, before
+  jobs/evidence hardening): `universal.work.*` over FeltDB agent state; WorkIntent, WorkDecision,
+  ReviewRun, ReviewerExecution, Finding, Resolution; `verification.assemble`; constructed review
+  via FeltKit generation (no compute dependency); AT-1 and AT-2. Former M2–M5 shift by one.
+- Constructed (b) reviews in compute sessions follow W-C2 (egress lock).
+- AuthBoundry: no new mechanism; new grants `review.read`, `continuity.read`, `work.decision.record`.
+
+## 10. Risks and unknowns
+
+- `@feltdb/core` source not audited; agent state verified only through its published build.
+- Agent-state actors are free strings; binding them to AuthBoundry principals is required before
+  AT-1 step 4 can be meaningful.
+- Constructed review means Boundry executes inference: cost, model choice (Resolver ref) and
+  credential custody become platform responsibilities. It is the only level that proves freshness.
+- Isolation evidence proves what the reviewer received, not that the review was good. Findings
+  quality remains a human judgment, as EGM says.
+- The EGM fork is behind upstream; the product should reference upstream method artifacts by digest.
+- Naming: the request calls this product "Boundry Continuity"; this repository's plan calls it
+  "Boundry Universal". This document treats continuity and verification as a layer of the same
+  product. Needs an owner decision.

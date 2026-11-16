@@ -6,3 +6,7 @@ services and infrastructure — built by composing existing Boundry products, no
 Status: **planning.** No implementation yet. See [docs/IMPLEMENTATION-PLAN.md](docs/IMPLEMENTATION-PLAN.md)
 for the audit of the existing Boundry repositories, the resulting architecture, open decisions, and the
 milestone plan.
+
+[docs/CONTINUITY-AND-VERIFICATION.md](docs/CONTINUITY-AND-VERIFICATION.md) covers the durable work
+lifecycle (intent, knowledge, decisions, work, verification), how continuity differs from
+independent fresh-context review, and how review isolation is enforced and evidenced.
