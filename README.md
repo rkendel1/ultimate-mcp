@@ -4,7 +4,8 @@ Boundry helps people build what they actually intend to build: an interactive, d
 process in which humans establish direction, agents perform authorized work, Boundry detects drift and
 brings meaningful decisions to the human, and outcomes are verified against the evolving intent.
 
-Status: **planning, plus the M0.1 foundation spike in progress** (`src/`, `test/`).
+Status: **planning, plus the M0.1 foundation proof complete** (`src/`, `test/`; see
+[docs/M0.1-REPORT.md](docs/M0.1-REPORT.md) for what it does and does not prove).
 
 - [docs/PRODUCT-PLAN.md](docs/PRODUCT-PLAN.md): current product definition, what exists vs what is
   missing, architecture, domain model, milestones and the smallest interactive build loop (P1).

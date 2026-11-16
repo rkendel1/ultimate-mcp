@@ -208,6 +208,25 @@ Studio stays an operator tool; it cannot host application screens.
 
 ## 9. Decisions needed before the slice
 
+> **Owner directions, 2026-11-16 (recorded; not implementation authorization):**
+> - **D6:** FeltKit authenticates the person; AuthBoundry establishes whether that person has authority
+>   to make the decision; both identities are preserved in the record.
+> - **D7:** investigate the smallest FeltKit change that hosts the gateway with one FeltDB. Do not
+>   implement it without the FeltKit repository owner's approval. No second authority; do not assume
+>   Managed FeltDB solves it.
+> - **D8:** non-production compute only; no customer execution on the shared Boundry platform host; no
+>   durable-workspace claim before the persistence gate passes.
+>
+> **Review of revision 4, acknowledged, to be incorporated in revision 5 (P1 not approved yet):**
+> verification bound to one exact implementation (repository, commit, criterion and baseline versions,
+> check definition and environment); a real identity-binding contract for D6 proven end to end; a
+> minimal shared-process proof for D7 before any application work; `unverified / superseded / drift /
+> unattributed` kept distinct; a consistency contract for decisions, baselines and work (atomic or
+> idempotent transitions, concurrency checks, reconciliation of external decisions); an honest local
+> verification boundary; acceptance bound to a commit or artifact digest; starting a build from a rough
+> outcome; question blocking limited to the asking agent's own or authorized tasks; the Build Core as
+> the only place state transitions happen.
+
 **D6 — Human identity for decisions.** AuthBoundry is not an OIDC issuer, so FeltKit cannot use it
 for sign-in today, and under `agent_required` AuthBoundry refuses a check that merely names a human.
 - (a) **Recommended for the slice:** FeltKit authenticates the person (FeltKit account or OIDC); an

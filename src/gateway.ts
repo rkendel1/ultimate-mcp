@@ -98,6 +98,7 @@ const rpc = (id: unknown, payload: { result: unknown } | { error: { code: number
 export function createGateway(options: GatewayOptions): Gateway {
   const now = options.now ?? (() => new Date());
   const { evidence, authority } = options;
+  const serviceName = options.serverInfo?.name ?? "boundry-continuity";
 
   const application = createApplication({
     application: { id: "boundry-continuity", name: options.serverInfo?.name ?? "boundry-continuity", version: options.serverInfo?.version ?? "0.0.1" },
@@ -170,14 +171,16 @@ export function createGateway(options: GatewayOptions): Gateway {
         capability,
         caller: {
           credential: credential.kind,
-          principal_id: decision?.principalId ?? null,
-          proven: decision?.executor?.proven === true && decision.principalId !== null,
+          // Only AuthBoundry's authentication of the presented credential sets this; never a request claim.
+          authenticated_principal_id: decision?.executor?.proven ? decision.principalId : null,
+          authentication: decision?.executor?.proven ? "authboundry_agent_credential" : "none",
           agent_credential_id: decision?.executor?.agentCredentialId ?? null,
         },
+        executor: { service: serviceName, identity_basis: "asserted_by_configuration" },
         on_behalf_of: onBehalfOf,
         authority: decision
-          ? { asked: true, outcome: decision.outcome, decision_id: decision.decisionId, reason: decision.reason, http_status: decision.httpStatus, delegation_id: decision.delegationId }
-          : { asked: false, outcome: "not_asked", decision_id: null, reason: null, http_status: null, delegation_id: null },
+          ? { asked: true, outcome: decision.outcome, decision_id: decision.decisionId, principal_id: decision.principalId, reason: decision.reason, http_status: decision.httpStatus, delegation_id: decision.delegationId }
+          : { asked: false, outcome: "not_asked", decision_id: null, principal_id: null, reason: null, http_status: null, delegation_id: null },
         result,
         input_digest: inputDigest(args),
       };

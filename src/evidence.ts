@@ -29,20 +29,39 @@ export interface EvidenceRecord {
   transport: "mcp";
   tool: string | null;
   capability: string | null;
+  /**
+   * Who called, and on what basis. Four identities are kept apart:
+   *   - the AUTHENTICATED caller: whoever presented the credential, known only as its holder;
+   *   - the AUTHORIZED principal: `authority.principal_id`, what AuthBoundry decided for;
+   *   - the EXECUTING service: `executor`, this gateway;
+   *   - any identity the request merely CLAIMS: never recorded as identity.
+   */
   caller: {
     /** What the caller presented, as the gateway saw it (never the value). */
     credential: "agent_credential" | "none" | "malformed";
-    /** Set only from AuthBoundry's proven executor. A claim in the request never lands here. */
-    principal_id: string | null;
-    proven: boolean;
+    /**
+     * The principal AuthBoundry bound the presented credential to, or null. Basis: possession of a
+     * valid credential (AuthBoundry `executor.method = agent_credential`). It shows that the caller held
+     * that principal's credential; it does not establish which software, model or person held it.
+     */
+    authenticated_principal_id: string | null;
+    authentication: "authboundry_agent_credential" | "none";
     agent_credential_id: string | null;
+  };
+  /** The service that executed the invocation. Its identity is asserted by its own configuration. */
+  executor: {
+    service: string;
+    identity_basis: "asserted_by_configuration";
   };
   /** The delegator the caller asked to act for; AuthBoundry decided whether that is true. */
   on_behalf_of: string | null;
   authority: {
     asked: boolean;
     outcome: AuthorityOutcome | "not_asked";
+    /** AuthBoundry's durable decision id. Null whenever AuthBoundry recorded no decision; never invented. */
     decision_id: string | null;
+    /** The principal AuthBoundry decided for (null when it decided nothing). */
+    principal_id: string | null;
     reason: string | null;
     http_status: number | null;
     delegation_id: string | null;
