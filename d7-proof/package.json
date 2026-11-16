@@ -1,0 +1,25 @@
+{
+  "name": "boundry-d7-proof",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Disposable D7(a) proof: the M0.1 AuthBoundry-gated MCP gateway hosted as a FeltKit runtime component, sharing one FeltKit runtime and one FeltDB owner with the human application.",
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "build": "feltkit build",
+    "test": "feltkit build && node --test --test-concurrency=1 test/*.test.ts"
+  },
+  "dependencies": {
+    "@appport/core": "1.7.1",
+    "@appport/mcp": "1.3.8",
+    "@appport/protocol": "1.5.0",
+    "@appport/schema": "1.1.6",
+    "@feltdb/core": "0.21.0",
+    "@feltdb/feltkit": "0.3.29"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@types/node": "22.15.30",
+    "typescript": "5.8.3"
+  }
+}
