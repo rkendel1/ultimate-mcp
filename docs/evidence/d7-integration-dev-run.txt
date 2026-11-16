@@ -1,0 +1,134 @@
+# D7 proof — development run (working tree, before the proof commit)
+# date: 2026-11-16T02:40:58Z
+# base commit: f8c3e47116f741e031a7a835ff83bd933681f12c + uncommitted d7-proof/
+
+
+> boundry-d7-proof@0.0.1 test
+> feltkit build && node --test --test-concurrency=1 test/*.test.ts
+
+feltkit build 0.3.29
+✓ Backend   .feltkit/build/functions.mjs  (7 functions, 0 capabilities, verified by loading the bundle)
+✓ Schema    2 collection(s) compile to a FeltDB state contract  (sha256:1ab9310abae4…; installed at start, or `feltkit migrate`)
+• No frontend (no index.html)
+✓ Component agent-gateway  .feltkit/build/components/agent-gateway.mjs  (/agents/mcp/; required; sha256:7dfe6e971448…)
+
+Run it with `feltkit start`, or package it with `feltkit deploy`.
+TAP version 13
+# Subtest: single owner: one FeltDB owner; a second owner of the same state is refused; the component has no database
+ok 1 - single owner: one FeltDB owner; a second owner of the same state is refused; the component has no database
+  ---
+  duration_ms: 3014.01685
+  type: 'test'
+  ...
+# Subtest: concurrent update, person holding: the agent's write commits; the person's stale write is refused, nothing lost
+ok 2 - concurrent update, person holding: the agent's write commits; the person's stale write is refused, nothing lost
+  ---
+  duration_ms: 1524.029395
+  type: 'test'
+  ...
+# Subtest: concurrent update, agent holding: the person's write commits; the agent's stale write is refused and its evidence says so
+ok 3 - concurrent update, agent holding: the person's write commits; the agent's stale write is refused and its evidence says so
+  ---
+  duration_ms: 1570.413679
+  type: 'test'
+  ...
+# Subtest: stale read: a person who read an older version cannot overwrite an agent's newer write
+ok 4 - stale read: a person who read an older version cannot overwrite an agent's newer write
+  ---
+  duration_ms: 72.881462
+  type: 'test'
+  ...
+# Subtest: both entry points write through the same runtime: FeltKit's view of each writer is its own
+ok 5 - both entry points write through the same runtime: FeltKit's view of each writer is its own
+  ---
+  duration_ms: 40.912324
+  type: 'test'
+  ...
+# Subtest: identity cannot be substituted: claims in headers, _meta or arguments never become the actor; people cannot forge agent writes or evidence
+ok 6 - identity cannot be substituted: claims in headers, _meta or arguments never become the actor; people cannot forge agent writes or evidence
+  ---
+  duration_ms: 75.921409
+  type: 'test'
+  ...
+# D7 consistency observations: {"directOpen":"STATE_LOCKED","secondOwner":"feltkit start exited (1): ✗ The production environment is already running (pid 3100) at http://localhost:37193.\\n  hint: Use that server, or stop it first. Two processes on one environment would mean two FeltDB instances on the same state.\\n","personHeldError":"CONFLICT","agentHeldError":"CONFLICT","agentHeldFeltKitError":"FAILED_PRECONDITION"}
+# Subtest: authorization cannot be recorded → the update does not execute (503 EVIDENCE_UNAVAILABLE)
+ok 7 - authorization cannot be recorded → the update does not execute (503 EVIDENCE_UNAVAILABLE)
+  ---
+  duration_ms: 3304.364046
+  type: 'test'
+  ...
+# Subtest: an outcome cannot be recorded → the result is withheld (503); the authorized record stands alone
+ok 8 - an outcome cannot be recorded → the result is withheld (503); the authorized record stands alone
+  ---
+  duration_ms: 577.647872
+  type: 'test'
+  ...
+# Subtest: a refusal cannot be recorded → 503, never a silent refusal
+ok 9 - a refusal cannot be recorded → 503, never a silent refusal
+  ---
+  duration_ms: 25.655383
+  type: 'test'
+  ...
+# Subtest: state and outcome commit atomically: a failure after both are staged leaves neither
+ok 10 - state and outcome commit atomically: a failure after both are staged leaves neither
+  ---
+  duration_ms: 590.552085
+  type: 'test'
+  ...
+# Subtest: AuthBoundry unavailable → refused and recorded, with no invented decision id
+ok 11 - AuthBoundry unavailable → refused and recorded, with no invented decision id
+  ---
+  duration_ms: 922.723272
+  type: 'test'
+  ...
+# Subtest: with faults cleared, the same update succeeds and commits note and outcome together
+ok 12 - with faults cleared, the same update succeeds and commits note and outcome together
+  ---
+  duration_ms: 77.474132
+  type: 'test'
+  ...
+# Subtest: 1-2. the application and its agent-gateway component are healthy, and the component has no database
+ok 13 - 1-2. the application and its agent-gateway component are healthy, and the component has no database
+  ---
+  duration_ms: 2618.397443
+  type: 'test'
+  ...
+# Subtest: 3. a person authenticates through FeltKit
+ok 14 - 3. a person authenticates through FeltKit
+  ---
+  duration_ms: 61.698817
+  type: 'test'
+  ...
+# Subtest: 4-12. scenario through the typescript MCP client
+ok 15 - 4-12. scenario through the typescript MCP client
+  ---
+  duration_ms: 719.948221
+  type: 'test'
+  ...
+# Subtest: 4-12. scenario through the python MCP client
+ok 16 - 4-12. scenario through the python MCP client
+  ---
+  duration_ms: 1038.654194
+  type: 'test'
+  ...
+# Subtest: both MCP clients observe the same behaviour
+ok 17 - both MCP clients observe the same behaviour
+  ---
+  duration_ms: 0.502788
+  type: 'test'
+  ...
+# Subtest: 13. after a SIGKILL restart of the FeltKit process, notes and evidence are unchanged
+ok 18 - 13. after a SIGKILL restart of the FeltKit process, notes and evidence are unchanged
+  ---
+  duration_ms: 523.987788
+  type: 'test'
+  ...
+1..18
+# tests 18
+# suites 0
+# pass 18
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 17174.673357
