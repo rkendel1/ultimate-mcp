@@ -1,286 +1,292 @@
-# Boundry Universal — Implementation Plan (grounded in the repositories as they exist)
+# Boundry Continuity — Implementation Plan (grounded in the repositories as they exist)
 
 Status: **plan, not implementation.** Nothing described as "to build" below exists yet.
+Revision 3, 2026-11-16: decisions D1–D5 settled by the owner; evidence moved into M0; scoped review is
+the baseline; workspace persistence is a hard M1 gate; next slice defined (§9).
+
 Audit date: 2026-11-16. Commits inspected: appport `35a57ea`, authboundry `0c982e4`, appboundry `9f84020`,
 feltkit `b0cfa6a`, appport-services `1295589`, compute `b8607ae`, pax `aab5039`, resolver `89881ef`,
 boundry (site) `3a5400d`. FeltDB source (`rkendel1/feltdb`) was **not accessible**; it is consumed here only
 as npm `@feltdb/core` (0.21.0 in FeltKit, 0.11.7 in AuthBoundry).
 
 Evidence levels used throughout:
-- **Verified** — I built/ran it in this audit.
-- **Tested** — test files exist in the repo covering it; not run by me.
+- **Verified** — run during this audit.
+- **Tested** — test files exist in the repo covering it; not run here.
 - **Code** — implementation exists; test coverage not confirmed.
 - **Doc** — design/proposal only; no code.
 
 ---
 
-## 1. Bottom line
+## 1. Product definition
 
-The spec's thesis holds up against the code, but its component map does not. Most of Universal already
-exists as separate, contract-shaped pieces. **Universal is a composition problem, not a platform build.**
+> **Boundry Continuity is a durable, agent-independent system for creating, executing, reviewing and
+> verifying work.** Agents are replaceable participants. Work intent, knowledge, decisions, artifacts,
+> authority and evidence are durable records owned by the customer. Boundry preserves continuity when
+> agents change, and enables independent verification without trusting the originating agent's account
+> of its own work.
 
-The smallest coherent architecture is:
+Boundry is the **authority and evidence system for work**, not the owner of any agent workflow. It
+stores records, enforces deterministic rules, assembles context, executes authorized operations and
+records what happened. It does not ship an agent framework, prompt engine, workflow engine or
+integration catalog.
 
-> **Boundry Universal = a FeltKit application** (FeltDB state, AppPort capabilities, AuthBoundry authority,
-> durable invocations, audit, MCP surface — all already integrated) **+ a new `compute` ExecutionAdapter**
-> (FeltKit's existing extension point) **+ a small `universal.*` capability set.**
+Contract requirements that apply to every milestone:
+- **Client neutrality.** No capability, record or test depends on a particular agent, model, harness or
+  stack. Neutrality is claimed only after the same contract passes through **at least two genuinely
+  different MCP clients**.
+- **Evidence from the start.** No capability ships without a durable allow/deny record (M0). Later
+  milestones enrich evidence; none introduces it.
+- **Customer ownership.** Records, review methods and evidence are customer-owned and inspectable through
+  the same capabilities agents use.
+- **No EGM at runtime.** The Elephant–Goldfish Model was a design reference only; nothing from it is a
+  dependency, packaged artifact or customer-facing requirement.
+- **Boundary separation.** The control plane never runs customer code. Customer execution runs only on
+  hosts designated for it.
 
-Three things in the spec are wrong about the platform and must change before building:
+The implementation is a composition of existing Boundry products: **a FeltKit application** (FeltDB state,
+AppPort capabilities, AuthBoundry authority, durable invocations, audit) **+ a `compute` ExecutionAdapter**
+(FeltKit's existing extension point) **+ a small, curated capability set**, plus three genuinely new
+pieces: verification records, verification context assembly, and the evidence join.
 
-1. **PAX is not an evidence plane.** It is a project-inspection CLI. Its own boundary doc says it does not
-   "produce execution receipts" and "does not hold state" (`pax/docs/PAX_BOUNDARY.md:97,106`).
-2. **Intent does not exist as code.** FeltKit's own audit says so (`feltkit/docs/M1-AGENT-FOUNDATION-AUDIT.md:111`).
-3. **AppBoundry cannot host a Universal Computer.** It runs packaged WASM artifacts with no shell,
-   processes, or filesystem (`appboundry/docs/architecture/execution-model.md`). **`compute` is the
-   execution plane.**
+Corrections to the original spec, from the audit:
+1. **PAX is not an evidence plane.** It is a project-inspection CLI that "does not produce execution
+   receipts" and "does not hold state" (`pax/docs/PAX_BOUNDARY.md:97,106`). It is the result format for
+   running tests.
+2. **Intent does not exist as code** (`feltkit/docs/M1-AGENT-FOUNDATION-AUDIT.md:111`). Removed.
+3. **AppBoundry cannot host a computer.** It runs packaged WASM only. `compute` is the execution plane.
+4. **AuthBoundry is not an OAuth authorization server.** M0 uses agent bearer credentials (D2).
 
-And one hard gap the spec under-weights: **AuthBoundry is not an OAuth authorization server.** No
-authorize/token endpoint, PKCE, dynamic client registration, or protected-resource metadata exists. This
-decides how M0 authenticates (see D2).
-
-**Client neutrality.** No capability, record or test may depend on a particular agent, model, harness or stack. Every exit test runs against each supported client; Claude Code is only the first one verified, because it accepts static bearer headers today (D2).
-
-**Revision 2026-11-16 — continuity and independent verification.** The product also covers the
-durable lifecycle of work: Intent, Knowledge, Decisions, Work and Verification, with continuity
-(handoff) and independent review as distinct context operations. Continuity already exists in
-FeltDB agent state (verified); independent verification does not exist anywhere and is new work.
-See [CONTINUITY-AND-VERIFICATION.md](CONTINUITY-AND-VERIFICATION.md).
+See [CONTINUITY-AND-VERIFICATION.md](CONTINUITY-AND-VERIFICATION.md) for the work lifecycle, the two
+context operations and review isolation.
 
 ---
 
 ## 2. Reality map
 
-| Spec role | Actual owner | What exists | Level | Decision |
+| Role | Actual owner | What exists | Level | Decision |
 |---|---|---|---|---|
-| Capability contracts | **AppPort** `@appport/protocol`, `@appport/core` 1.7.1 | Versioned capabilities, JSON-schema I/O, `effect` (observation/consequential), idempotency, timeouts, RFC 8785 digests, pluggable `Authorizer` | Tested | **Reuse as-is.** Universal defines no contract format. |
-| MCP gateway | **AppPort** `@appport/mcp` 1.3.8 | Stateless Streamable HTTP handler; 1 tool per capability; host supplies caller; fail-closed when no caller; idempotency/timeout via `_meta` | **Verified** (built; 68/68 tests pass) | **Reuse.** No new MCP server code. |
-| MCP gateway (alt) | **FeltKit** `packages/sdk/src/server/mcp.ts` | Hand-rolled JSON-RPC, POST-only; tools filtered by `authority.mayInvoke`; bearer = FeltKit session or AppPort API key | Code | Consolidate onto `@appport/mcp` (see W-F3). |
-| Authority | **AuthBoundry** (Rust; hosted `api.authboundry.com`) | Human/agent/service principals; delegations with resource scope, chains, expiry; `POST /_authboundry/authorize/check` reloads state per check, fails closed; agent credentials (`aga_`, 1h TTL, rotation, theft-revokes-family); revocation effective next request | Tested (≈240 server integration tests + conformance suite) | **Reuse.** Gateway acts as the application's enforcement point. |
-| Authority ↔ AppPort | AuthBoundry `createAuthBoundryAuthorizer`; FeltKit `runtime/authboundry.ts` | Both call `/authorize/check` per invocation, fail closed, return `decision_id` | Tested | **Reuse FeltKit's path.** |
-| OAuth 2.1 for MCP clients | — | **Nothing.** AuthBoundry is an OAuth *client* of GitHub/Google only | — | **Gap → D2.** Belongs in AuthBoundry, not Universal. |
-| Per-operation human approval | FeltKit invocations `awaiting_approval` + Studio approval | Consequential agent proposals wait for human approval | Code/Tested | Reuse. AuthBoundry has none at invocation time. |
-| Durable state | **FeltDB** `@feltdb/core` | collections, `transaction` with `requireAbsent`/`ifVersion`, `updateIfVersion`, query, watch | Used by every repo; source not audited | Reuse via FeltKit. |
-| Jobs / long-running work | **FeltKit** `runtime/invocations.ts` | accept → running (lease, claim token) → awaiting_approval / completed / failed / cancelled; replay on duplicate accept; CAS cancel; recovery sweep; durable idempotency (`IDEMPOTENCY_OUTCOME_UNKNOWN` instead of blind re-run); outbox | Tested | **Reuse — this is the job system.** |
-| Jobs (alternatives rejected) | AppPort `OperationRunner`; appport-services Jobs | OperationRunner: memory store, no owner/tenant. Services Jobs: no cancel, no result, no enqueue idempotency, takeover may duplicate side effects | Tested | **Do not use** for Universal jobs. |
-| Execution boundary | **FeltKit** `runtime/execution-host.ts` `ExecutionAdapter` | Narrow adapter: environment descriptor + `dispatch` via the outbox; control plane owns attempts, leases, fencing, evidence. Only `managed` adapter exists; others "register the same interface; none is built here" | Code | **Build the `compute` adapter here.** |
-| Universal Computer | **compute** (Rust) + `@compute/appport` | Sessions: create/exec(`--detach`,`--timeout`)/input/stop/resume/claim/destroy/fork, logs/events, file read/write/list; durable environments (repos, packages, processes) reconciled as jobs; container provider (docker/podman, caps dropped, cpu/mem/pids limits) CI-tested on real Docker; Firecracker microVM (terminal, suspend, vsock-only egress) CI-tested on KVM; SHA-256 receipts, optionally signed; ~60 `compute.*` AppPort capabilities | Tested | **Reuse as execution plane.** |
-| Computer gaps | compute | Interactive PTY only on microVM; egress enforced only on microVM; `persistent_storage:false` on all providers; credential custody "not production-grade"; daemon (`compute start`) does not host sessions — `compute serve` targets do; `@compute/appport` is `private: true` | Code/Doc | See W-C*. |
-| Browser | — | **Nothing usable.** `browser-agent-runtime` is a WebLLM research repo; compute uses Playwright only to test its own UI | — | **Build** as a session image + capabilities (W-B1). |
-| Secrets | appport-services protocols + FeltKit custody; Resolver vault | `credential-ref:` only in records; material released only inside an authorized effect (`gateway.withSecret`); Resolver AES-256-GCM vault with audited reveal; compute egress can broker credential headers | Tested | Reuse refs + effect-scoped release. Resolver↔custody integration is **Doc only** (`resolver/docs/appport-services-integration.md:15`). |
-| Evidence | Distributed: AuthBoundry decision evidence; appport-services `EffectEvidence`; FeltKit `_feltkit_audit`; compute receipts; AppPort nested-invocation evidence | Each records its own slice; none joins them; none signed except optional compute receipts; FeltKit audit explicitly "not tamper-evident against whoever operates the FeltDB instance" | Tested | **Build the join** (W-U4), owned by Universal in FeltDB. |
-| PAX | **pax** CLI | `pax test/build/... --json` → `pax.execution-result.v1` (status, exit code, test counts); project observations | Code | Use as the **`development.run` result format**, not as evidence. |
-| Resolver | **resolver** | `ref://` model/secret/endpoint/agent/value, revisioned, audited | Tested; deployment unverified | Not needed for M0–M2. Later: credential binding. |
-| Intent | — | No code | — | **Remove from plan.** |
-| n8n | — | — | — | M6, optional, licensing review first. |
-| Hosting | appboundry `deploy/boundry/compose.yml` (shared Hetzner) | FeltDB control/managed, intent, portal, authboundry. Header: **"Customer workloads do NOT run here."** `SERVER-PLAN.md:3`: **"Nothing here has been run on the server."** | Doc | **Conflict → D1.** |
+| Capability contracts | **AppPort** `@appport/protocol`, `@appport/core` 1.7.1 | Versioned capabilities, JSON-schema I/O, `effect` (observation/consequential), idempotency, timeouts, RFC 8785 digests, pluggable `Authorizer` | Tested | **Reuse as-is.** No new contract format. |
+| MCP endpoint | **AppPort** `@appport/mcp` 1.3.8 | Stateless Streamable HTTP handler; 1 tool per capability; host supplies caller; fail-closed when no caller | **Verified** (68/68 tests) | **Reuse.** |
+| MCP endpoint (FeltKit) | **FeltKit** `server/mcp.ts` | Hand-rolled JSON-RPC, POST-only; tools filtered per caller; bearer = FeltKit session token or AppPort API key only. Not an AuthBoundry agent credential | Code | M0 slice decides (§9). |
+| Authority | **AuthBoundry** | Human/agent/service principals; delegations with resource scope; `POST /_authboundry/authorize/check` reloads state per check, fails closed; agent credentials (`aga_`, 1h TTL, rotation); revocation effective next request | Tested (≈240 server integration tests + conformance) | **Reuse.** |
+| Authority ↔ FeltKit | FeltKit `runtime/authboundry.ts`, `application-authority.ts` | Per-call check, fail closed, `decision_id`, executor proof. Forwards an agent credential **FeltKit itself holds** (`local-authority.ts`), never one presented by the client | Tested | Extend: forward the client's credential (W-F2). |
+| OAuth 2.1 for MCP clients | — | Nothing; AuthBoundry is an OAuth client of GitHub/Google only | — | M5, in AuthBoundry. |
+| Human approval | FeltKit invocations `awaiting_approval` | Consequential proposals wait for a person | Tested | Reuse. |
+| Durable state | **FeltDB** `@feltdb/core` | Collections, transactions with `requireAbsent`/`ifVersion`, query, watch | Used everywhere; source not audited | Reuse via FeltKit. |
+| Continuity | **FeltDB** agent state | Tasks, immutable checkpoints, scoped memory, leased handoffs, bounded context assembly | **Verified** (cross-process handoff, `probes/`) | Reuse. |
+| Jobs | **FeltKit** `runtime/invocations.ts` | Leases, CAS cancel, replay, approval wait, recovery sweep, durable idempotency | Tested | Reuse. AppPort `OperationRunner` and appport-services Jobs rejected (memory-only / no cancel). |
+| Execution boundary | **FeltKit** `ExecutionAdapter` | Narrow adapter via the outbox; only `managed` exists | Code | Build `compute` adapter. |
+| Computer | **compute** + `@compute/appport` | Sessions (create/exec with `--detach`/`--timeout`/stop/resume/claim/destroy), file read/write/list, environments reconciled as jobs, container provider CI-tested on real Docker, microVM CI-tested on KVM, SHA-256 receipts, ~60 `compute.*` capabilities | Tested | Reuse. |
+| Workspace durability | compute | Container workspace = **host directory bind-mounted at `/workspace`** (`containers.rs:24-30,242`), so it should survive container death and stop/resume on the same host, but not host loss. All providers report `persistent_storage:false` = no storage outlives the host. Running computers can be replaced with their workspace exported; a lost/failed/stopped one "has no workspace to preserve" (`docs/computers.md:332-348`) | Code/Doc; **same-host survival not yet tested** | **Hard M1 gate** (§8). |
+| Browser | — | Nothing offered to sessions | — | M4. |
+| Secrets | appport-services refs + FeltKit custody; Resolver vault | `credential-ref:` only; material released inside authorized effects; compute egress brokers headers | Tested | Reuse; Resolver↔custody is Doc only. |
+| Evidence | AuthBoundry decisions; appport-services `EffectEvidence`; FeltKit `_feltkit_audit`; compute receipts | Each records its own slice; nothing joins them. FeltKit records **refused** calls only in the best-effort, pruned `_feltkit_activity` log | Tested | Minimal durable record in **M0**; join in **M3**. |
+| Hosting | appboundry `deploy/boundry/compose.yml` (shared Hetzner) | Platform services only. "Customer workloads do NOT run here." Server plan not yet executed | Doc | D1. |
 
 ---
 
-## 3. Architecture after the audit
+## 3. Architecture
 
 ```
- Claude Code / ChatGPT / Codex
-          │  MCP Streamable HTTP (POST)
+ Any MCP client (any agent, model or stack)
+          │  MCP Streamable HTTP, Authorization: Bearer <AuthBoundry agent credential>
           ▼
- ┌─────────────────────────── boundry-universal (this repo) ───────────────────────────┐
- │ FeltKit application                                                                 │
- │   MCP surface ........ @appport/mcp createMcpHandler (projection of the manifest)   │
- │   Caller ............. bearer → AuthBoundry principal (agent credential, D2)        │
- │   Authority .......... FeltKit runtime/authboundry.ts → /_authboundry/authorize/check│
- │   Capabilities ....... universal.*  (curated, see §5)                               │
- │   Jobs ............... FeltKit invocations (durable, cancel, approval, recovery)     │
- │   Evidence join ...... universal_evidence collection (W-U4)                          │
- │   Execution .......... ExecutionAdapter "compute"  ──────────────┐                   │
- │   State .............. FeltDB (one instance)                     │                   │
- └──────────────────────────────────────────────────────────────────┼───────────────────┘
-                                                                    ▼
-                                        compute serve  (container provider; microVM where KVM)
-                                        sessions · environments · files · receipts · egress gateway
+ ┌──────────────── Boundry Continuity (this repo): one FeltKit application ────────────────┐
+ │ MCP surface ........ curated direct tools, one per capability (D3)                       │
+ │ Authority .......... AuthBoundry /authorize/check per call, client credential forwarded  │
+ │ Evidence ........... invocation record per call, allow AND deny (M0); joined later (M3)  │
+ │ Work + continuity .. FeltDB agent state                                                  │
+ │ Verification ....... review runs, findings, resolutions, decisions (M2)                  │
+ │ Jobs ............... FeltKit invocations                                                 │
+ │ State .............. one FeltDB instance                                                 │
+ │ Execution .......... compute ExecutionAdapter ──────────────┐                            │
+ └─────────────────────────────────────────────────────────────┼────────────────────────────┘
+        control plane: never runs customer code                │
+                                                               ▼
+                         compute serve on a host designated for customer execution (D1)
 ```
 
-The four planes in the spec map onto existing owners as follows: **Interface** = `@appport/mcp`;
-**Control** = FeltKit + AuthBoundry + FeltDB; **Execution** = compute; **Evidence** = a Universal-owned
-join over records the other systems already write. No new registry, auth system, job system, or MCP
-server is introduced.
-
 ---
 
-## 4. Decisions needed before code
+## 4. Decisions (settled 2026-11-16)
 
-**D1 — Where do Universal Computers run?**
-The spec says "shared Hetzner, no new infrastructure." The shared host's compose file says customer
-workloads do not run there, and its server plan has not been executed. A Universal Computer *is* a
-customer workload (arbitrary code, network). Options:
-- (a) Control plane on the shared host; `compute serve` on the existing dedicated staging execution host
-  (`appboundry/deploy/staging-host`). **Recommended** — if that host exists; I could not verify it.
-- (b) Run `compute serve` on the shared host. Violates its own stated boundary. Not recommended.
-- (c) New host with KVM for microVM isolation. Needed eventually for enforced egress and PTY.
-
-**D2 — How does an MCP client authenticate in M0?**
-- (a) **Recommended for M0:** an AuthBoundry agent credential (`aga_…`) sent as a static
-  `Authorization: Bearer` header. Claude Code supports static headers for HTTP MCP servers. This is real,
-  per-agent, short-lived, rotatable and revocable today. Cost: manual credential issuance; ~1h TTL means
-  rotation friction for long sessions (needs verifying against the 7-day family renewal).
-- (b) Build an OAuth 2.1 authorization server (PKCE, RFC 9728 protected-resource metadata, RFC 7591
-  DCR, RFC 8707 audience) **in AuthBoundry**. Required for ChatGPT and for self-service onboarding. Real
-  work; schedule as M5. Do not put it in Universal — that would duplicate the authority boundary.
-
-**D3 — Tool shape exposed over MCP.**
-`@appport/mcp` projects one tool per capability. The spec wants meta-tools. Recommendation: **both,
-from the same manifest** — a curated direct set (~15 P0 tools, below) so clients' per-tool approval
-UX works, plus `universal.capabilities.search/describe/invoke` as AppPort capabilities for the long tail.
-`invoke` dispatches through `context.invoke`, which is exactly the path for which AppPort already emits
-invocation evidence (`appport/packages/core/src/invocation.ts`). Risk to accept knowingly: a generic
-`invoke` tool weakens client-side per-tool approval; mitigate by requiring server-side approval for
-consequential capabilities reached through it.
-
-**D4 — Build on FeltKit (preview, 0.3.30) or directly on AppPort server?**
-Recommended: FeltKit, because it already integrates AuthBoundry, FeltDB, durable invocations, audit,
-approval and the execution adapter boundary — rebuilding those is the duplication the spec forbids.
-Verify with the M0 spike; if FeltKit blocks, fall back to `@appport/server` + the same packages.
-
----
-
-## 5. Initial `universal.*` capability set (P0)
-
-Each is a thin AppPort capability delegating to an existing contract. Names are proposals.
-
-| Capability | Delegates to | Effect |
+| | Decision | Consequence |
 |---|---|---|
-| `universal.computer.create / inspect / list / stop / resume / destroy` | `compute.session.*` (via adapter) | consequential / observation |
-| `universal.terminal.execute` (sync ≤ timeout; else returns job) | `compute session exec [--detach] [--timeout]` | consequential |
-| `universal.terminal.process.inspect / stop` | compute environment processes; cancel/signal | observation / consequential |
-| `universal.files.list / read / write` | `compute session file list/read/write` | observation / consequential |
-| `universal.files.search / move / delete` | `terminal.execute` (`rg`, `mv`, `rm`) inside the session | — |
-| `universal.git.clone / status / diff / branch / commit` | `terminal.execute` with git in the image; clone token via egress credential brokering | — |
-| `universal.development.run` | `pax test/build --json` inside the session → `pax.execution-result.v1` | consequential |
-| `universal.jobs.get / cancel / result` | FeltKit invocations | observation / consequential |
-| `universal.evidence.get` | Universal evidence join (W-U4) | observation |
-| `universal.capabilities.search / describe / invoke` | AppPort manifest + `context.invoke` | — |
+| **D1** Hosting | No new host now. The shared Boundry host runs platform services only; **no customer workloads on it**. Do not assume a dedicated staging execution host exists. | M0 needs no compute host. M1's persistence proofs run on a non-production machine with Docker (local or CI), as compute's own container-engine CI already does. **No customer-facing release of the computer until an execution host is designated.** |
+| **D2** Authentication | Static AuthBoundry agent bearer credentials, **M0 spike only**. | Recorded gaps: no OAuth (M5); 1h TTL with 7-day family renewal must be handled by the client or an operator; manual issuance. |
+| **D3** Tool shape | Curated direct capabilities with per-capability authorization. `search`/`describe` added when the catalog needs them. **Generic `invoke` deferred** until its authority and approval semantics are proven. | Client-side per-tool approval stays meaningful. |
+| **D4** Host framework | FeltKit, subject to the M0 spike. **Fallback:** host `@appport/mcp` + `@appport/core` with AuthBoundry's `createAuthBoundryAuthorizer` and FeltDB directly in this repo, reusing the same contracts. | §9 states what the spike must show. |
+| **D5** Name | **Boundry Continuity.** "Universal" retired as the product name. | Capability names are domain names (`work.*`, `computer.*`), not product names. |
 
-Git, search, move, delete are deliberately **not** new services — they are commands in a session.
-They become first-class capabilities only for authority granularity (e.g. grant `git.status` without
-`terminal.execute`). Note: if an agent holds `terminal.execute`, it can do anything the session can;
-fine-grained grants only mean something for agents that lack it. That is an inherent property of giving
-an agent a shell, and the authority UI must say so.
+---
+
+## 5. Capability set
+
+Domain-named, curated, direct. Each is a thin AppPort capability over an existing contract.
+
+| Capability | Milestone | Delegates to | Effect |
+|---|---|---|---|
+| `work.task.create` | M0 | FeltDB `createTask` | consequential |
+| `evidence.list` / `evidence.get` | M0 | Invocation evidence records | observation |
+| `computer.create / inspect / list / stop / resume / destroy` | M1 | `compute.session.*` via adapter | mixed |
+| `terminal.execute` | M1 | `compute session exec [--timeout]` | consequential |
+| `files.list / read / write` | M1 | `compute session file *` | mixed |
+| `git.status / diff / commit / branch / clone` | M1 | commands in the session | mixed |
+| `work.task.* / checkpoint / handoff.* / resume`, `knowledge.*`, `intent.*`, `decision.*` | M2 | FeltDB agent state + new records | mixed |
+| `review.*` (assemble, read bundle, submit finding, resolve) | M2 | New verification records | mixed |
+| `jobs.get / cancel / result` | M3 | FeltKit invocations + compute `--detach` | mixed |
+| `capabilities.search / describe` | when the catalog needs it | AppPort manifest | observation |
+| ~~`capabilities.invoke`~~ | deferred (D3) | — | — |
+
+A grant of `terminal.execute` dominates finer grants in the same session: an agent with a shell can do
+anything the session can. The authority UI must say so.
 
 ---
 
 ## 6. Work items by repository
 
-### This repo — `boundry-universal` (`rkendel1/ultimate-mcp`)
-- **W-U1** FeltKit app skeleton; one FeltDB instance; AuthBoundry application + check credential.
-- **W-U2** `universal.*` capabilities (§5) with schemas, effects, idempotency.
-- **W-U3** MCP route via `@appport/mcp createMcpHandler`; `context()` maps verified bearer → principal.
-- **W-U4** Evidence join: one `universal_evidence` record per invocation, written in the invocation's
-  transaction: principal, agent (executor proof), capability@version + digest, args digest (args stored
-  only if classified safe), AuthBoundry `decision_id`, FeltKit invocation id, compute receipt digest,
-  outcome, artifact refs. Refusals recorded durably (FeltKit currently sends them only to the pruned
-  activity log). `universal.evidence.get` reads it.
-- **W-U5** Acceptance suite (§8).
+**This repo (`rkendel1/ultimate-mcp`, product: Boundry Continuity)**
+- **W-U1** FeltKit app; one FeltDB instance; AuthBoundry application + check credential.
+- **W-U2** Capabilities (§5).
+- **W-U3** MCP route; client bearer → AuthBoundry principal with executor proof.
+- **W-U4a (M0)** Invocation evidence: one append-only record per call (allow, deny, error):
+  correlation id, timestamp, caller principal, executor proof (`proven` / `asserted`), credential id
+  (never the credential), capability@version, AuthBoundry `decision_id` / outcome / reason, outcome, error
+  code. Written for refusals before the response is returned. No arguments or results stored.
+- **W-U4b (M3)** Evidence join: compute receipts, artifact and tree digests, nested invocations, test
+  results, approvals, cross-system provenance.
+- **W-U5** Acceptance suite, including a two-client conformance run.
 
-### FeltKit
-- **W-F1** `compute` ExecutionAdapter on the existing `ExecutionAdapter` interface.
-- **W-F2** Accept an AuthBoundry agent credential as MCP bearer, with executor proof (verify current
-  behavior first; `mcp.ts` accepts FeltKit session or AppPort API key today).
-- **W-F3** Replace hand-rolled `server/mcp.ts` with `@appport/mcp` (removes duplicate protocol code;
-  optional for M0).
-- **W-F4** Durable record of refused calls.
+**FeltKit**
+- **W-F1 (M1)** `compute` ExecutionAdapter.
+- **W-F2 (M0)** Accept an AuthBoundry agent credential as the MCP bearer and forward it as
+  `x-authboundry-agent-credential` so the executor is `proven`.
+- **W-F3** Replace hand-rolled `server/mcp.ts` with `@appport/mcp` (optional; removes duplicate protocol code).
+- **W-F4 (M0)** Durable refusal records (today refusals reach only the pruned activity log).
 
-### compute
-- **W-C1** Publish `@compute/appport` (currently `private: true`) or consume it from source.
-- **W-C2** Deploy `compute serve` with the container provider on the D1 host; token auth; locked
-  network (custom Docker network with no default route, egress only through `compute-egress`), since
-  container egress is otherwise advisory (`compute/docs/egress.md:50-58`).
-- **W-C3** Workspace persistence: confirm what survives stop/resume and host loss
-  (`persistent_storage:false` today); define the guarantee honestly before claiming "environment
-  survives the agent."
-- **W-C4** Default session image: git, ripgrep, node, python, pax; Playwright + Chromium for W-B1.
+**compute**
+- **W-C1 (M1)** Publish `@compute/appport` (`private: true` today) or consume from source.
+- **W-C2 (before any customer release)** Locked network for container sessions; egress only through `compute-egress`.
+- **W-C3 (M1 gate)** Workspace persistence proofs (§8 M1).
+- **W-C4 (M1/M4)** Session image: git, ripgrep, node, python, pax; Playwright later.
 
-### AuthBoundry
-- **W-A1** Model Universal grants on what exists: capability strings (`universal.files.write`) + resource
-  scope (`{type:"environment", id}`). No new hierarchy needed for MVP; environment/operation become
-  resource attributes. Confirm `ResourceScope.is_subset_of` covers it.
-- **W-A2** Implement the batch eligibility read (`docs/CAPABILITY-ELIGIBILITY.md`, currently proposal)
-  so `tools/list` can be filtered per caller.
-- **W-A3 (M5)** OAuth 2.1 authorization server for MCP (D2b).
+**AuthBoundry**
+- **W-A1 (M0)** Grants as capability strings + resource scope (`{type:"environment", id}`). Confirm
+  `ResourceScope.is_subset_of` covers it.
+- **W-A2 (M5)** Batch eligibility read for per-caller tool lists (proposal today).
+- **W-A3 (M5)** OAuth 2.1 authorization server for MCP.
 
-### AppPort
-- **W-P1** Put `capabilityDigest` into the projected tool's `_meta` (small; digests exist).
-- **W-P2 (M6)** Inbound bridge: external MCP server → AppPort capabilities (does not exist).
-
-### Not touched
-PAX (used as a CLI inside sessions), Resolver (later), AppBoundry (hosting pipeline only), appport-services
-Jobs (not used for Universal jobs).
+**AppPort**
+- **W-P1** `capabilityDigest` in projected tool `_meta`.
 
 ---
 
-## 7. Milestones (re-sequenced to the real dependency order)
+## 7. Milestones
 
-**M0 — One agent, one capability, real authority** *(W-U1, W-U3, W-F2, W-A1)*
-Spike FeltKit as the host. One observation capability (`universal.environments.list`).
-Exit: an MCP client connects with an agent credential, lists and invokes; revoking the credential or the
-delegation in AuthBoundry makes the **next** call fail; a call with no/invalid bearer is refused;
-evidence record exists for allow and deny.
+Order changed by the review: authority and evidence first, then the hardest unresolved technical risk
+(persistent execution state), then the work lifecycle. Console polish and integrations come last.
 
-**M1 — Universal Computer** *(W-F1, W-C1–C4, terminal/files/git capabilities)*
-Exit: an MCP client, through Boundry only, creates a computer, clones a repo, edits a file, runs tests
-(`pax test --json`), commits on a branch; disconnects; reconnects and finds the workspace intact.
-
-**M2 — Work records and independent verification** *(see CONTINUITY-AND-VERIFICATION.md §9)*
-`universal.work.*` over FeltDB agent state; WorkIntent, WorkDecision, ReviewRun, ReviewerExecution,
-Finding, Resolution; `verification.assemble`; constructed review via FeltKit generation.
-Exit: **AT-1** (cross-agent continuation) and **AT-2** (independent review, human resolution,
-durable decisions readable by a third agent) pass.
-
-**M3 — Jobs and evidence** *(W-U4, W-F4, jobs capabilities)*
-Exit: a long-running command continues after client disconnect; `jobs.cancel` actually stops the process
-(verified by process absence, not status); every invocation, including refusals, has an inspectable
-evidence record joined to the AuthBoundry decision and compute receipt.
-
-**M4 — Browser and first integrations** *(W-C4 Playwright, GitHub via egress credential brokering, HTTP)*
-Exit: an agent logs into an authorized test app in a session browser and returns a screenshot artifact;
-GitHub token never appears in tool output or model context (asserted by test).
-
-**M5 — Authority and product surface** *(W-A2, W-A3, approvals, console)*
-Exit: ChatGPT connects via OAuth; tool lists are filtered per caller; consequential capabilities can be
-set to require approval; an admin can do all of this without internal APIs.
-
-**M6 — Extension** *(W-P2, n8n after licensing review)*
+| | Milestone | Depends on |
+|---|---|---|
+| **M0** | Authority and evidence | AuthBoundry (local), FeltDB, FeltKit. **No compute host.** |
+| **M1** | Persistent computer | M0; Docker on a non-production machine (D1) |
+| **M2** | Durable work and independent review | M0 (M1 for AT-1's workspace step) |
+| **M3** | Execution evidence and durable jobs | M1 |
+| **M4** | Browser and selected integrations | M2 |
+| **M5** | Onboarding and broader client support | M0–M2 |
 
 ---
 
-## 8. Acceptance tests mapped to owners
+## 8. Exit criteria
 
-| Test | Owner / existing coverage |
-|---|---|
-| MCP client connects, lists, calls | `@appport/mcp` protocol + http tests (verified passing) + new Universal E2E |
-| Unauthorized invocation rejected | AppPort fail-closed + AuthBoundry deny; new Universal E2E |
-| Cross-tenant access rejected | AppPort "isolates tenants" tests + AuthBoundry L0 isolation conformance; new E2E across two orgs |
-| Revocation effective next request | AuthBoundry `revocation_takes_effect_on_the_next_request`; new E2E through MCP |
-| Environment isolation | compute container-engine CI; new test: session A cannot read session B |
-| Timeout enforced / cancel stops process | compute tests; new E2E asserting the process is gone |
-| Client disconnect, job continues | FeltKit invocations + compute `--detach`; new E2E |
-| Recovery without duplicate side effects | FeltKit `IDEMPOTENCY_OUTCOME_UNKNOWN` semantics; new E2E with crash injection |
-| Secrets never in model context | new test scanning all tool results/evidence for injected secret values |
-| Provider replacement | swap container ↔ microVM provider; same `universal.*` contract passes |
-| Real repository task | M1 exit test |
-| **AT-1** Cross-agent continuation | FeltDB agent state (verified locally, `probes/`); new E2E across two clients and principals |
-| **AT-2** Independent review → human resolution → durable decisions read by a third agent | New; see CONTINUITY-AND-VERIFICATION.md §8 |
+Every exit test runs through MCP only, automated, and against the client set named in the milestone.
+
+**M0 — Authority and evidence** (clients: two independent MCP client implementations, e.g. the official
+TypeScript SDK client and the official Python SDK client)
+1. A client with a granted agent credential calls `work.task.create`; the task exists in FeltDB with that
+   principal as actor; an `allow` evidence record exists with AuthBoundry's `decision_id` and executor `proven`.
+2. The same call without the grant is refused; a `deny` record exists with AuthBoundry's reason.
+3. No or invalid bearer → refused; a record exists with caller unknown.
+4. Revoking the agent credential → the **next** call is refused and recorded.
+5. Revoking the delegation → the next call is refused and recorded.
+6. AuthBoundry unreachable → refused (fail closed), recorded with outcome `authority_unavailable`.
+7. Evidence is append-only: no capability updates or deletes a record; a direct second write of the same id
+   is refused by FeltDB (`requireAbsent`).
+8. Process restart → all records still readable through `evidence.list`.
+9. Steps 1–8 pass identically through both clients.
+
+**M1 — Persistent computer** (hard gate: **no workspace-continuity claim before items 3–7 pass**)
+1. `computer.create`, `files.write`, `terminal.execute`, `git.commit` work through MCP.
+2. A test suite runs in the session; its `pax.execution-result.v1` is returned.
+3. Files and git state survive `computer.stop` → `computer.resume`; tree digest (files + `.git`) equal before and after.
+4. The container process is killed externally; the workspace is recovered; tree digest equal.
+5. The compute serve process is killed and restarted; the computer is reachable again; tree digest equal.
+6. The client disconnects; a **different** client and principal reconnect and find the same tree digest.
+7. Host or storage loss is simulated (workspace directory removed); the product reports the computer as
+   `lost` and makes **no** claim that the workspace survived. Documented guarantee: same-host durability only.
+8. Two sessions cannot read each other's workspace.
+
+**M2 — Durable work and independent review**: AT-1 and AT-2 (scoped) in CONTINUITY-AND-VERIFICATION.md
+§8, run with at least two distinct agent clients. AT-2C (constructed) is optional for M2.
+
+**M3 — Execution evidence and durable jobs**
+1. A detached command continues after client disconnect; its result is retrievable later.
+2. `jobs.cancel` stops the process, verified by process absence, not status.
+3. Crash mid-job → recovery without duplicate side effects (`IDEMPOTENCY_OUTCOME_UNKNOWN` semantics).
+4. Each invocation's evidence joins its AuthBoundry decision, compute receipt, artifact digests and test results.
+
+**M4 — Browser and selected integrations**
+1. A session browser completes a task in an authorized test app and returns a screenshot artifact.
+2. Injected credentials never appear in any tool result or evidence record (scanned by test).
+
+**M5 — Onboarding and broader client support**
+1. OAuth sign-in from at least one client that cannot use static headers.
+2. Per-caller tool lists; approval for designated operations; administration without internal APIs.
+3. Client conformance suite published and passing for every supported client.
 
 ---
 
-## 9. Unknowns and risks (stated, not resolved)
+## 9. Smallest next implementation slice: M0.1
 
-- **FeltDB** source and hosted status not audited; the whole control plane depends on it.
-- **Nothing in the stack is verified operationally** by this audit. The site itself says so
-  (`boundry/content/stack.json` → `evidence.notYet`). The shared Hetzner server plan is unexecuted.
-  `api.authboundry.com` is referenced as hosted; I did not call it.
-- **FeltKit is preview (0.3.30).** M0 is a spike precisely to test this dependency.
-- **Agent credential TTL (1h)** vs long agent sessions — verify renewal ergonomics for MCP clients.
-- **Workspace durability** is weaker than the spec's promise until W-C3 defines it.
-- **Container egress** is not enforced without W-C2 network lockdown; microVM needs KVM hardware.
-- **Shell access dominates fine-grained grants** (see §5 note).
-- **ChatGPT** requires D2b (OAuth); Claude Code does not.
-- MCP spec evolution: `@appport/mcp` does not pin a protocol version (SDK ^1.31.0 negotiates). Pin the SDK
-  version in Universal and add a conformance test per supported revision.
+**Goal:** prove the trust boundary (identity → authority → execution → durable evidence) with one real
+capability, two MCP clients and no compute host. Nothing else.
+
+**In scope**
+- FeltKit application in this repo; local FeltDB file store.
+- AuthBoundry run locally from its own `compose.yaml` (no shared host, no hosted tenant).
+- One consequential capability, `work.task.create` (useful later: it is the first step of AT-1), and the
+  read capabilities `evidence.list` / `evidence.get`.
+- Client agent credential accepted as bearer and forwarded to AuthBoundry (W-F2).
+- Invocation evidence for allow, deny and error (W-U4a, W-F4).
+- M0 exit tests 1–9, automated, with the TypeScript and Python MCP SDK clients.
+
+**Out of scope:** compute, browser, review records, jobs, OAuth, console, search/describe, any deployment.
+
+**Spike questions the slice must answer (D4)**
+1. Can FeltKit's MCP path accept a client-presented AuthBoundry agent credential and get executor `proven`
+   with a change confined to W-F2? If it needs broader FeltKit surgery → take the documented fallback
+   (`@appport/mcp` + AuthBoundry authorizer + FeltDB in this repo).
+2. Can a refusal be recorded durably **before** the response returns, inside FeltKit's pipeline?
+3. Does AuthBoundry's local compose stack issue an agent credential and delegation that the check endpoint
+   honors end to end?
+
+**Changes outside this repo:** W-F2 and W-F4 are FeltKit changes (a branch and PR on `rkendel1/feltkit`,
+with its owner's approval). No changes to AuthBoundry, AppPort or compute in this slice.
+
+**Done means:** the M0 exit tests pass in CI for both clients, and a short report in `docs/` states what
+was proven, what failed, and which D4 path was taken.
+
+---
+
+## 10. Unknowns and risks
+
+- **Persistent execution state is the largest unresolved technical risk.** Same-host survival is
+  plausible from the code and untested; cross-host survival does not exist.
+- **No execution host is designated** (D1). M1 can be proven, but not offered to customers.
+- **FeltDB** source and hosted status not audited.
+- **Nothing is verified operationally**; the shared server plan is unexecuted.
+- **FeltKit is preview (0.3.30)**; M0.1 is the spike.
+- **Agent credential TTL (1h)** vs long sessions; renewal must be handled outside the MCP client today.
+- **Container egress** is not enforced without W-C2; microVMs need KVM hardware.
+- **Shell grants dominate finer grants** (§5).
+- MCP protocol evolution: pin the SDK version and run conformance per supported revision.

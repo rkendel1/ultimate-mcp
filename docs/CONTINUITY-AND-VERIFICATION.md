@@ -34,14 +34,14 @@ Evidence levels as in the plan: **Verified** (ran it), **Tested** (repo tests ex
 
 **EGM is a design reference, not a dependency.** No EGM skill, prompt, rubric, file or harness
 integration is used, packaged or referenced by Boundry. It informed which failure modes to design
-for and which rules are worth enforcing. Universal must work for **any** MCP-capable agent, model,
+for and which rules are worth enforcing. Boundry Continuity must work for **any** MCP-capable agent, model,
 environment and stack; no part of the lifecycle may assume a particular harness.
 
 | Layer | Owns | Examples |
 |---|---|---|
 | **Boundry primitives** | State, authority, context assembly, evidence, rule enforcement | Intent, Knowledge, Decisions, Work, Verification records; continuity vs verification assembly; isolation evidence |
 | **Review method inputs** (data, not code) | What a reviewer is asked to check | Reviewer instructions and checklists stored as versioned artifacts the customer owns and edits; Boundry ships a minimal default set written for Boundry |
-| **Agents** (any runtime, replaceable) | Doing the work | Any client that drafts, reviews or resolves through the `universal.*` capabilities |
+| **Agents** (any runtime, replaceable) | Doing the work | Any client that drafts, reviews or resolves through the `work.*` and `review.*` capabilities |
 
 Rule: Boundry's records never depend on how a reviewer was prompted. A review run references its
 method inputs as artifacts by digest, so the method can change without a Boundry change, and every
@@ -81,7 +81,7 @@ Why ratified decisions are in scope: EGM allows a contest to cite "a decision re
 document". A human-approved decision is an input to the design; an agent's unratified checkpoint
 decision is exactly the assumption under review.
 
-Placement: build `verification.assemble` in Universal against the FeltDB agent-state contract
+Placement: build `verification.assemble` in this repository against the FeltDB agent-state contract
 first; propose it upstream to FeltDB as the sibling of `assembleContext` once AT-2 passes.
 
 ---
@@ -120,7 +120,7 @@ WorkIntent ──1:n── AgentTask ──1:n── AgentCheckpoint (immutable)
 ```
 
 Every write is a capability invocation, so each already gets an AuthBoundry decision and a
-Universal evidence record (plan W-U4). The records above are the *meaning*; the evidence join is
+invocation evidence record (plan W-U4a, joined in W-U4b). The records above are the *meaning*; the evidence join is
 the *proof of who did what*.
 
 Authority rules (AuthBoundry grants, enforced at invocation):
@@ -155,8 +155,19 @@ By how the reviewer runs (any agent, model or stack; none is privileged):
 | Any agent CLI or program started by Boundry in a compute session holding only the bundle's sources | constructed (b) | Runtime-neutral: Boundry records the starting input, workspace digest and egress policy. Needs W-C2; microVM for enforced egress |
 | A model call Boundry makes itself | constructed (a) | Any provider or model via Resolver model refs and FeltKit generation; Boundry pays for the inference |
 
-Recommendation: require **constructed** for reviews that gate a human approval; accept **scoped**
-or **asserted** as advisory, labelled as such on every Finding.
+**Scoped review is the baseline, available to any MCP-capable agent.** Any separately authenticated
+reviewer can receive a Boundry-assembled bundle, read it, submit findings and take part in
+resolution. Its records state the guarantee exactly: Boundry proves what it exposed, what the
+reviewer read through Boundry and what it denied; it cannot prove what the reviewer already knew or
+what its client injected.
+
+**Constructed review is an optional higher-assurance mode.** Boundry controls the reviewer's whole
+input or execution environment, and input and workspace digests establish what was supplied. It
+requires Boundry to run or launch inference, so it must never become a dependency of ordinary review
+or of the product's operation. A customer may require it for designated approvals; the product works
+without it.
+
+**Asserted** (an in-process sub-agent) is accepted only as advisory and labelled on every Finding.
 
 ---
 
@@ -164,7 +175,7 @@ or **asserted** as advisory, labelled as such on every Finding.
 
 | Capability | Today | New |
 |---|---|---|
-| Cross-agent continuation (task, checkpoint, handoff, resume) | FeltDB agent state — **Verified** | Expose as `universal.work.*` capabilities; bind actors to AuthBoundry principals (currently free strings) |
+| Cross-agent continuation (task, checkpoint, handoff, resume) | FeltDB agent state — **Verified** | Expose as `work.*` capabilities; bind actors to AuthBoundry principals (currently free strings) |
 | Knowledge with provenance, supersede/invalidate | FeltDB memory — **Verified** (write/read); invalidate not exercised | `kind` validation; link invalidation to a Finding/Decision |
 | Verified test/build evidence | FeltKit change sets `verified` state — **Tested** | Use in AT-2 for implementation evidence |
 | Human approval of consequential actions | FeltKit `awaiting_approval` — **Tested** | Reuse for `WorkDecision` |
@@ -185,45 +196,53 @@ runtime beyond the existing compute session and FeltKit generation call, no gene
 
 **AT-1 — Cross-agent continuation** *(preserved; stated explicitly here because no prior text of
 it exists in the repositories)*
-1. Agent A (any MCP client, principal `A`) works in a Universal computer, checkpoints with decisions,
+1. Agent A (any MCP client, principal `A`) works in a persistent computer, checkpoints with decisions,
    evidence and memories, and creates a handoff to principal `B`.
 2. `A`'s credential is revoked.
 3. Agent B (a different client, model or stack, principal `B`) connects, claims the handoff and resumes
    from durable state only: same workspace (files and git state by tree digest), same objective,
    pending work, constraints and evidence.
-4. B's subsequent work is attributed to `B`; any further call by `A` is refused.
-Partial evidence today: steps 1 and 3 at the FeltDB layer (`probes/feltdb-continuity.mjs`).
+4. B's subsequent work is attributed to `B`; any further call by `A` is refused and recorded.
+Depends on the M1 persistence gate for step 3's workspace check. Partial evidence today: steps 1 and 3
+at the FeltDB layer only (`probes/feltdb-continuity.mjs`).
 
-**AT-2 — Independent verification with durable resolution**
+**AT-2 — Independent review, scoped, through an external MCP client** *(M2 gate)*
 1. Agent A drafts `docs/designs/x.md` (digest D1). Its checkpoint records decision `d1` and an
    assumption memory, both containing canary `C`.
 2. A requests review. Boundry assembles a verification bundle (target D1 + referenced sources +
-   method artifacts) and records its digest. Assert: bundle contains no checkpoint, memory or
-   handoff content; `C` is absent.
-3. Reviewer R runs at **constructed** level as a separate principal. Assert: R's recorded input
-   digest equals the bundle digest's construction; any attempt by R to call `resume` / memory reads
-   is refused by AuthBoundry and recorded. One reviewer is forced to fail: it is recorded `not_run`,
-   and the round is not clean.
-4. Findings are recorded with severity and location. A attempts to CONTEST one citing a source
-   **outside** the bundle → refused. A CONTEST citing a bundle source → accepted. A attempts to
-   record a `WorkDecision` → refused (agents cannot decide).
-5. Human H resolves the ESCALATE item and records decisions; each Decision carries H's principal and
-   an AuthBoundry decision id. The refuted assumption memory is invalidated with a link to the Finding.
+   method artifacts) and records its manifest and digest. Assert: the bundle holds no checkpoint,
+   memory or handoff content, and `C` is absent.
+3. Reviewer R is a **separate MCP client** (a different client implementation from A's) with its own
+   agent credential and a review-scoped delegation. R reads bundle items through `review.*`; every read
+   is recorded. R's attempts to call `work.resume`, read memories or read A's checkpoints are refused by
+   AuthBoundry and recorded. No recorded read returns `C`.
+4. The ReviewRun records isolation level `scoped` and the guarantee text: what was exposed, read and
+   denied; client-side context not provable.
+5. One reviewer is forced to fail: it is recorded `not_run`, and the round is not clean.
+6. R submits findings with severity and location. A attempts to CONTEST one citing a source **outside**
+   the bundle → refused. A CONTEST citing a bundle source → accepted. A attempts to record a
+   `WorkDecision` → refused (agents cannot decide).
+7. Human H resolves the escalated item and records decisions; each carries H's principal and an
+   AuthBoundry decision id. The refuted assumption memory is invalidated with a link to the Finding.
    A revises the design to D2.
-6. Agent C (a third runtime, never involved, principal `C`) connects and retrieves, via MCP only:
-   the WorkIntent, D1 and D2, the ReviewRun with its bundle manifest and isolation level, every
-   Finding and Resolution, the Decisions with who decided, the invalidated memory, and the evidence
-   records — all from durable state, with no access to A's or R's conversations.
+8. Agent C (a third client, never involved, principal `C`) retrieves through MCP only: the WorkIntent,
+   D1 and D2, the ReviewRun with bundle manifest and isolation level, every Finding and Resolution, the
+   Decisions with who decided, the invalidated memory, and the evidence records.
+
+**AT-2C — Constructed review** *(optional; when the execution path exists)*
+Same as AT-2 steps 1–2 and 5–8, but Boundry constructs R's entire input (a model call with a recorded
+`inputDigest`, or an agent program in a compute session holding only the bundle). Assert: the recorded
+input is derived from the bundle alone and does not contain `C`; the ReviewRun records level
+`constructed`. Turning this mode off must not break AT-2.
 
 ---
 
 ## 9. Changes to the implementation plan
 
-- New milestone **M2 — Work records and independent verification** (after M1 computer, before
-  jobs/evidence hardening): `universal.work.*` over FeltDB agent state; WorkIntent, WorkDecision,
-  ReviewRun, ReviewerExecution, Finding, Resolution; `verification.assemble`; constructed review
-  via FeltKit generation (no compute dependency); AT-1 and AT-2. Former M2–M5 shift by one.
-- Constructed (b) reviews in compute sessions follow W-C2 (egress lock).
+- **M2 — Durable work and independent review**: `work.*`, `knowledge.*`, `intent.*`, `decision.*`,
+  `review.*` over FeltDB agent state and the new records; `verification.assemble`; exit = AT-1 and
+  AT-2 (scoped), with at least two distinct agent clients. AT-2C optional.
+- Constructed review never becomes a required path; its compute variant also waits for W-C2.
 - AuthBoundry: no new mechanism; new grants `review.read`, `continuity.read`, `work.decision.record`.
 
 ## 10. Risks and unknowns
@@ -231,10 +250,9 @@ Partial evidence today: steps 1 and 3 at the FeltDB layer (`probes/feltdb-contin
 - `@feltdb/core` source not audited; agent state verified only through its published build.
 - Agent-state actors are free strings; binding them to AuthBoundry principals is required before
   AT-1 step 4 can be meaningful.
-- Constructed review means Boundry executes inference: cost, model choice (Resolver ref) and
-  credential custody become platform responsibilities. It is the only level that proves freshness.
+- Scoped review cannot prove what a reviewer's client injected. This is stated on every scoped
+  record rather than hidden.
+- Constructed review, where used, makes Boundry pay for and govern inference (cost, model choice,
+  credential custody). It is optional by design.
 - Isolation evidence proves what the reviewer received, not that the review was good. Findings
-  quality remains a human judgment, as EGM says.
-- Naming: the request calls this product "Boundry Continuity"; this repository's plan calls it
-  "Boundry Universal". This document treats continuity and verification as a layer of the same
-  product. Needs an owner decision.
+  quality remains a human judgment.

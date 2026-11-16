@@ -1,12 +1,13 @@
-# Boundry Universal
+# Boundry Continuity
 
-One governed MCP endpoint through which AI agents discover and operate computers, files, browsers,
-services and infrastructure — built by composing existing Boundry products, not by adding a parallel stack.
+A durable, agent-independent system for creating, executing, reviewing and verifying work. Agents are
+replaceable participants; work intent, knowledge, decisions, artifacts, authority and evidence are
+durable records owned by the customer.
 
-Status: **planning.** No implementation yet. See [docs/IMPLEMENTATION-PLAN.md](docs/IMPLEMENTATION-PLAN.md)
-for the audit of the existing Boundry repositories, the resulting architecture, open decisions, and the
-milestone plan.
+Status: **planning.** No implementation yet.
 
-[docs/CONTINUITY-AND-VERIFICATION.md](docs/CONTINUITY-AND-VERIFICATION.md) covers the durable work
-lifecycle (intent, knowledge, decisions, work, verification), how continuity differs from
-independent fresh-context review, and how review isolation is enforced and evidenced.
+- [docs/IMPLEMENTATION-PLAN.md](docs/IMPLEMENTATION-PLAN.md): audit of the existing Boundry repositories,
+  architecture, settled decisions, milestones with exit criteria, and the next implementation slice (M0.1).
+- [docs/CONTINUITY-AND-VERIFICATION.md](docs/CONTINUITY-AND-VERIFICATION.md): the work lifecycle,
+  continuity vs independent review, review isolation levels, acceptance tests AT-1 and AT-2.
+- [probes/](probes/): reproducible checks behind claims in the docs.
