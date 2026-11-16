@@ -1,9 +1,8 @@
 # Continuity and Independent Verification — Architecture Assessment
 
 Status: **assessment and plan.** Companion to [IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md).
-Audit date: 2026-11-16. Inputs: `rkendel1/elephant-goldfish-model` at `403d888` (a fork of
-`google/elephant-goldfish-model`; upstream HEAD is `72d06f5`, so the fork is behind and should be
-re-checked before any reuse), `@feltdb/core@0.21.0` (published package; source repo not accessible),
+Audit date: 2026-11-16. Inputs: `rkendel1/elephant-goldfish-model` at `403d888` (fork of `google/elephant-goldfish-model`),
+inspected **as a design reference only** (see §2), `@feltdb/core@0.21.0` (published package; source repo not accessible),
 `rkendel1/feltkit` at `b0cfa6a`.
 
 Evidence levels as in the plan: **Verified** (ran it), **Tested** (repo tests exist), **Code**, **Doc**.
@@ -31,33 +30,38 @@ Evidence levels as in the plan: **Verified** (ran it), **Tested** (repo tests ex
 
 ---
 
-## 2. Three layers, and what belongs in each
+## 2. EGM's role: reference only
+
+**EGM is a design reference, not a dependency.** No EGM skill, prompt, rubric, file or harness
+integration is used, packaged or referenced by Boundry. It informed which failure modes to design
+for and which rules are worth enforcing. Universal must work for **any** MCP-capable agent, model,
+environment and stack; no part of the lifecycle may assume a particular harness.
 
 | Layer | Owns | Examples |
 |---|---|---|
-| **Method** (EGM, Apache-2.0, agent-side) | How to brainstorm, draft, review, resolve | Personas (`agents/*.md`), rubrics (`resources/document_standards/*`), stage order, the synthesizer |
-| **Boundry primitives** | State, authority, context assembly, evidence | Intent, Knowledge, Decisions, Work, Verification records; continuity vs verification assembly; isolation evidence |
-| **Agent skills** (replaceable) | Behavior that uses the primitives | EGM skills calling Boundry capabilities instead of writing `goldfish_review_report.md` to the working tree |
+| **Boundry primitives** | State, authority, context assembly, evidence, rule enforcement | Intent, Knowledge, Decisions, Work, Verification records; continuity vs verification assembly; isolation evidence |
+| **Review method inputs** (data, not code) | What a reviewer is asked to check | Reviewer instructions and checklists stored as versioned artifacts the customer owns and edits; Boundry ships a minimal default set written for Boundry |
+| **Agents** (any runtime, replaceable) | Doing the work | Any client that drafts, reviews or resolves through the `universal.*` capabilities |
 
-Rule: Boundry never embeds a persona prompt or rubric. A review run **references** them as input
-artifacts by URI and digest, so the method can evolve (or be replaced) without a Boundry change,
-and every review records exactly which method version it ran.
+Rule: Boundry's records never depend on how a reviewer was prompted. A review run references its
+method inputs as artifacts by digest, so the method can change without a Boundry change, and every
+review records exactly which inputs it ran with.
 
 ---
 
-## 3. EGM concepts: reuse decision
+## 3. Lessons taken from EGM (concepts only; nothing reused)
 
-| EGM concept | Where it is | Decision |
+| EGM concept | Where it is | Boundry decision |
 |---|---|---|
 | Elephant / Goldfish / Human roles | README, `architecture.md` | **Primitive.** Distinct AuthBoundry principals and context boundaries (§5) |
-| Personas, rubrics, stage pipeline | `agents/`, `resources/`, `review.md` | **Stay agent-side.** Referenced by digest in each review run |
+| Personas, rubrics, stage pipeline | `agents/`, `resources/`, `review.md` | **Not used.** Boundry's own method inputs are customer-owned artifacts (§2) |
 | Severity: Blocker / Major / Nit | `agents/synthesizer.md:12` | **Adopt** as the finding severity enum |
 | Resolution categories: PROPOSE FIX, CONTEST, ESCALATE, DECLINE | `review.md`, `egm-resolve` | **Primitive, enforced.** These rules are deterministic, so Boundry enforces them: a CONTEST must cite evidence the reviewer could read (checked against the review bundle); comprehension gaps cannot be contested; severity changes need a contest; ESCALATE needs a human decision |
 | Failed reviewer = `not run`, never zero findings | `synthesizer.md:40` | **Primitive.** Reviewer execution status; a run with a `not_run` reviewer is not clean |
 | Round rules: settled findings stay settled, a fixed finding re-opens if raised again, clean = no unsettled Blocker/Major, stop after 2 clean rounds or at 5 | `review.md` "Iteration" | **Computed by Boundry** from durable rounds (deterministic); the loop itself stays agent-side |
 | `concepts_brief.md`, `design_draft.md`, `docs/designs/*.md` | skills | **Artifacts** in the repository, registered by path + digest. The repo stays the home of design text; Boundry records versions and links |
-| `goldfish_review_report.md` | synthesizer | **Projection** rendered from Finding records, not the authority |
-| Drift report | `egm-drift-report` | **Split.** Deterministic part (referenced paths/symbols exist at a source tree digest) is a Boundry check; semantic divergence is a review run of kind `drift` producing findings |
+| Markdown review report (`goldfish_review_report.md`) | synthesizer | **Lesson:** a report is a projection rendered from Finding records, never the authority |
+| Drift report | `egm-drift-report` | **Lesson, split.** Deterministic part (referenced paths/symbols exist at a source tree digest) is a Boundry check; semantic divergence is a review run of kind `drift` producing findings |
 | Isolation probe on native transcripts | `tests/integration/test_claude.py`, `TESTING.md` | **Adopt the principle**, move it to runtime: canary-based exclusion test (§6) |
 | "Elephant does not add context only a zero-context reviewer needs" | `review.md` ESCALATE | **Primitive.** The verification bundle contains only declared sources; the originator cannot inject explanation |
 
@@ -134,22 +138,22 @@ Claims are graded, never rounded up:
 
 | Level | How | What it proves | What it does not |
 |---|---|---|---|
-| **asserted** | Client reports it used a fresh subagent (EGM today) | Nothing beyond the claim; recorded as unverified | Freshness |
+| **asserted** | Client reports it used a fresh sub-agent (how prompt-based methods work today) | Nothing beyond the claim; recorded as unverified | Freshness |
 | **scoped** | Reviewer is a separate AuthBoundry principal with a review-scoped delegation; continuity reads denied; every read recorded | The reviewer could not obtain originating context **through Boundry**, and exactly which bundle items it read | That the client didn't put context in the prompt (e.g. a Claude Code subagent shares its parent's process, MCP connection and credential, so it cannot even be a separate principal) |
-| **constructed** | Boundry builds the reviewer's entire input: (a) a direct model call via FeltKit generation, recording `GenerationReceipt.inputDigest`; or (b) a headless agent CLI in a compute session whose workspace holds only the bundle's sources, with the starting prompt digest, workspace tree digest and egress policy recorded | Freshness by construction for that run | Review quality, or that every item was fully read (EGM: a successful read result is not proof the whole resource was read) |
+| **constructed** | Boundry builds the reviewer's entire input: (a) a direct model call via FeltKit generation, recording `GenerationReceipt.inputDigest`; or (b) any agent program run in a compute session whose workspace holds only the bundle's sources, with the starting prompt digest, workspace tree digest and egress policy recorded | Freshness by construction for that run | Review quality, or that every item was fully read (EGM: a successful read result is not proof the whole resource was read) |
 
 Runtime-level canary test (adopted from EGM's isolation probe): the originating checkpoint and a
 memory carry a unique canary string; for `constructed` runs, the recorded input must not contain it
 (checked against the stored bundle preimage); for `scoped` runs, no recorded read may return it.
 
-Per runtime (today):
+By how the reviewer runs (any agent, model or stack; none is privileged):
 
-| Runtime | Best achievable level | Note |
+| Reviewer runs as | Best achievable level | Note |
 |---|---|---|
-| Claude Code, in-session subagent | asserted | Same process and credential as the Elephant |
-| Claude Code / Codex headless in a Boundry compute session | constructed (b) | Needs W-C2 egress control; microVM for enforced egress |
-| Any client as a separate principal over MCP | scoped | Needs a second agent credential |
-| Boundry-run model call | constructed (a) | Uses existing FeltKit generation + Resolver model refs; Boundry pays the inference |
+| A sub-agent inside the originating agent's own process | asserted | Shares the originator's process, connection and credential, so Boundry cannot tell it apart |
+| Any MCP client as a separate principal | scoped | Needs its own agent credential and a review-scoped delegation |
+| Any agent CLI or program started by Boundry in a compute session holding only the bundle's sources | constructed (b) | Runtime-neutral: Boundry records the starting input, workspace digest and egress policy. Needs W-C2; microVM for enforced egress |
+| A model call Boundry makes itself | constructed (a) | Any provider or model via Resolver model refs and FeltKit generation; Boundry pays for the inference |
 
 Recommendation: require **constructed** for reviews that gate a human approval; accept **scoped**
 or **asserted** as advisory, labelled as such on every Finding.
@@ -170,9 +174,9 @@ or **asserted** as advisory, labelled as such on every Finding.
 | Verification context assembly | — | **`verification.assemble`** |
 | Review / finding / resolution / decision records + rule enforcement | — | **New records**, deterministic rule checks |
 | Deterministic drift check | FeltDB `ArchitectureInvariant` + evaluations (Code; general invariants) | Reference-existence check of design artifacts at a tree digest |
-| Semantic drift | EGM `egm-drift-report` (agent-side, markdown) | Emits Findings into a `drift` ReviewRun |
+| Semantic drift | — | Any agent performs a `drift` ReviewRun over the verification bundle and records Findings |
 
-Not built (scope guard): no orchestration engine for EGM stages, no prompt library, no agent
+Not built (scope guard): no orchestration engine for review stages, no prompt library, no agent
 runtime beyond the existing compute session and FeltKit generation call, no general workflow DSL.
 
 ---
@@ -181,10 +185,10 @@ runtime beyond the existing compute session and FeltKit generation call, no gene
 
 **AT-1 — Cross-agent continuation** *(preserved; stated explicitly here because no prior text of
 it exists in the repositories)*
-1. Agent A (Claude Code, principal `A`) works in a Universal computer, checkpoints with decisions,
+1. Agent A (any MCP client, principal `A`) works in a Universal computer, checkpoints with decisions,
    evidence and memories, and creates a handoff to principal `B`.
 2. `A`'s credential is revoked.
-3. Agent B (a different client, e.g. Codex, principal `B`) connects, claims the handoff and resumes
+3. Agent B (a different client, model or stack, principal `B`) connects, claims the handoff and resumes
    from durable state only: same workspace (files and git state by tree digest), same objective,
    pending work, constraints and evidence.
 4. B's subsequent work is attributed to `B`; any further call by `A` is refused.
@@ -231,7 +235,6 @@ Partial evidence today: steps 1 and 3 at the FeltDB layer (`probes/feltdb-contin
   credential custody become platform responsibilities. It is the only level that proves freshness.
 - Isolation evidence proves what the reviewer received, not that the review was good. Findings
   quality remains a human judgment, as EGM says.
-- The EGM fork is behind upstream; the product should reference upstream method artifacts by digest.
 - Naming: the request calls this product "Boundry Continuity"; this repository's plan calls it
   "Boundry Universal". This document treats continuity and verification as a layer of the same
   product. Needs an owner decision.

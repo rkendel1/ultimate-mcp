@@ -38,6 +38,8 @@ And one hard gap the spec under-weights: **AuthBoundry is not an OAuth authoriza
 authorize/token endpoint, PKCE, dynamic client registration, or protected-resource metadata exists. This
 decides how M0 authenticates (see D2).
 
+**Client neutrality.** No capability, record or test may depend on a particular agent, model, harness or stack. Every exit test runs against each supported client; Claude Code is only the first one verified, because it accepts static bearer headers today (D2).
+
 **Revision 2026-11-16 — continuity and independent verification.** The product also covers the
 durable lifecycle of work: Intent, Knowledge, Decisions, Work and Verification, with continuity
 (handoff) and independent review as distinct context operations. Continuity already exists in
@@ -217,12 +219,12 @@ Jobs (not used for Universal jobs).
 
 **M0 — One agent, one capability, real authority** *(W-U1, W-U3, W-F2, W-A1)*
 Spike FeltKit as the host. One observation capability (`universal.environments.list`).
-Exit: Claude Code connects with an agent credential, lists and invokes; revoking the credential or the
+Exit: an MCP client connects with an agent credential, lists and invokes; revoking the credential or the
 delegation in AuthBoundry makes the **next** call fail; a call with no/invalid bearer is refused;
 evidence record exists for allow and deny.
 
 **M1 — Universal Computer** *(W-F1, W-C1–C4, terminal/files/git capabilities)*
-Exit: Claude Code, through Boundry only, creates a computer, clones a repo, edits a file, runs tests
+Exit: an MCP client, through Boundry only, creates a computer, clones a repo, edits a file, runs tests
 (`pax test --json`), commits on a branch; disconnects; reconnects and finds the workspace intact.
 
 **M2 — Work records and independent verification** *(see CONTINUITY-AND-VERIFICATION.md §9)*
