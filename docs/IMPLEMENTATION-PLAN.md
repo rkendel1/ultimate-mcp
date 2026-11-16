@@ -1,6 +1,10 @@
 # Boundry Continuity — Implementation Plan (grounded in the repositories as they exist)
 
 Status: **plan, not implementation.** Nothing described as "to build" below exists yet.
+
+> **Superseded in part (revision 4):** the product definition, milestones and next slice are now in
+> [PRODUCT-PLAN.md](PRODUCT-PLAN.md) (interactive, outcome-directed development). This document's reality
+> map, decisions D1–D5 and the M0.1 slice (§9) remain valid as the foundation.
 Revision 3, 2026-11-16: decisions D1–D5 settled by the owner; evidence moved into M0; scoped review is
 the baseline; workspace persistence is a hard M1 gate; next slice defined (§9).
 
